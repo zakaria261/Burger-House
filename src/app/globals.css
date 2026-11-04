@@ -5218,3 +5218,15 @@ html {
     justify-self: end;
   }
 }
+
+/* An app keeps its own scale; a single finger still scrolls the page and sheets. */
+@media (any-pointer: coarse) {
+  html,
+  body {
+    touch-action: pan-y;
+  }
+  .ledger-search input,
+  .category-filter {
+    font-size: 16px;
+  }
+}

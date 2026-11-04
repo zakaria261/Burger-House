@@ -87,7 +87,7 @@ Les bases SQLite locale, Postgres et D1 sont indépendantes. Les données d’un
 
 Ouvrir l’adresse HTTPS dans Safari, puis **Partager → Sur l’écran d’accueil → Ajouter**. Les instructions figurent également dans les réglages de l’app. Après une première connexion réussie, la dernière vue enregistrée sur cet appareil reste consultable hors connexion. Les nouvelles saisies nécessitent le réseau. La déconnexion efface la copie locale des données du compte.
 
-Le manifeste, les icônes Apple, les zones de sécurité et le service worker sont inclus. Les endpoints API et d’authentification ne sont jamais mis en cache par le service worker. Le cadre mobile bloque le débordement horizontal et le rebond latéral ; les contrôles, grilles et adresses longues s’adaptent à la largeur de l’écran tout en préservant le défilement vertical et le zoom d’accessibilité.
+Le manifeste, les icônes Apple, les zones de sécurité et le service worker sont inclus. Les endpoints API et d’authentification ne sont jamais mis en cache par le service worker. Le cadre mobile bloque le débordement horizontal et le rebond latéral ; les contrôles, grilles et adresses longues s’adaptent à la largeur de l’écran tout en préservant le défilement vertical. À la demande du restaurant, la page conserve une échelle fixe : zoom par pincement et double toucher bloqués sur les appareils tactiles, viewport à 1 et gestes WebKit interceptés. Les champs restent à 16 px minimum pour éviter le zoom automatique à la saisie. Les fonctions de grossissement du système restent gérées par iOS.
 
 ## Vérifications
 

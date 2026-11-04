@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
+import { lockTouchViewport } from './touch-viewport';
 export type Appearance = 'system' | 'light' | 'dark';
 export function haptic(type: 'selection' | 'success' | 'error' = 'selection') {
   if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function')
@@ -40,6 +41,11 @@ export function useAppearance() {
   return { appearance, setAppearance: choose };
 }
 export function useNativeViewport() {
+  useEffect(() => {
+    const touch = matchMedia('(any-pointer: coarse)');
+    return lockTouchViewport(document, () => touch.matches);
+  }, []);
+
   useEffect(() => {
     let frame = 0;
     const update = () => {
