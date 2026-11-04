@@ -115,7 +115,7 @@ export function EntryForm({ type, submit, busy, error }: { type: Entry['type'] }
           {type === 'expense' ? 'Fournisseur / salarié' : 'Référence'}
           <input
             name="supplier"
-            placeholder={type === 'expense' ? 'Ex. Gfd, Gqsoil, Carrefour…' : 'Facultatif'}
+            placeholder={type === 'expense' ? 'Ex. Gfd, Gasoil, Carrefour…' : 'Facultatif'}
             maxLength={100}
           />
         </label>

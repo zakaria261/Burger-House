@@ -11,7 +11,7 @@ export const CATEGORIES = [
   'Énergie',
   'Équipement',
   'Gfd',
-  'Gqsoil',
+  'Gasoil',
   'Carrefour',
   'Autres',
 ] as const;

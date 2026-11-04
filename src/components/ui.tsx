@@ -148,7 +148,7 @@ export function CategoryIcon({ category, size = 19 }: { category: string; size?:
         CB: CreditCard,
         Mypos: CreditCard,
         Gfd: ShoppingBasket,
-        Gqsoil: ShoppingBasket,
+        Gasoil: ShoppingBasket,
         Carrefour: ShoppingBasket,
         Uber: Truck,
         'Sur place': CreditCard,
