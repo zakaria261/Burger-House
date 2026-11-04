@@ -18,6 +18,7 @@ import {
   Play,
   LogOut,
   WifiOff,
+  Database,
   RefreshCw,
   X,
   Share,
@@ -38,7 +39,6 @@ import {
 import {
   Action,
   Entry,
-  Mode,
   Period,
   Snapshot,
   Tab,
@@ -57,6 +57,8 @@ import { ClockForm, EmployeeForm, EntryForm, NoteForm } from './forms';
 import { AppleMark, Symbol } from './symbols';
 import RevenueChart from './revenue-chart';
 import { haptic, useAppearance, useNativeViewport } from '@/lib/native';
+import SignIn from './sign-in';
+import { authClient } from '@/lib/auth/client';
 type Dialog =
   | null
   | { type: 'entry'; kind: Entry['type'] }
@@ -66,7 +68,6 @@ type Dialog =
   | { type: 'note' }
   | { type: 'install' }
   | { type: 'audit' }
-  | { type: 'mode' }
   | { type: 'export' }
   | { type: 'archive'; id: string };
 const NAV = [
@@ -102,7 +103,8 @@ const time = (value: string) =>
   }).format(new Date(value));
 export default function Cockpit() {
   const [tab, setTab] = useState<Tab>('overview');
-  const [mode, setMode] = useState<Mode>('demo');
+  const mode = 'live' as const;
+  const [requiresSignIn, setRequiresSignIn] = useState(false);
   const [period, setPeriod] = useState<Period>('day');
   const [date, setDate] = useState(today());
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -119,7 +121,6 @@ export default function Cockpit() {
   const [now, setNow] = useState(Date.now());
   const [ready, setReady] = useState(false);
   const lock = useRef(false);
-  const activeMode = useRef(mode);
   const latest = useRef<Snapshot | null>(null);
   const pendingInstall = useRef<(Event & { prompt?: () => Promise<void> }) | null>(null);
   const { appearance, setAppearance } = useAppearance();
@@ -150,62 +151,72 @@ export default function Cockpit() {
     },
     [],
   );
-  const refresh = useCallback(
-    async (initial = false) => {
-      const requested = mode;
-      try {
-        const res = await fetch(`/api/state?mode=${requested}`, {
-          cache: 'no-store',
-          headers:
-            !initial && latest.current
-              ? { 'If-None-Match': `"${requested}-${latest.current.revision}"` }
-              : {},
-        });
-        if (activeMode.current !== requested) return;
-        if (res.status === 304) {
-          setOffline(false);
-          return;
-        }
-        if (!res.ok) throw new Error('Le serveur est indisponible.');
-        const data = (await res.json()) as Snapshot;
-        if (!data.state || !Array.isArray(data.state.entries)) throw new Error('Réponse invalide.');
-        if (activeMode.current !== requested) return;
-        latest.current = data;
-        setSnapshot(data);
+  const refresh = useCallback(async (initial = false) => {
+    try {
+      const res = await fetch('/api/state', {
+        cache: 'no-store',
+        headers:
+          !initial && latest.current
+            ? { 'If-None-Match': `"live-${latest.current.revision}"` }
+            : {},
+      });
+      if (res.status === 304) {
+        setOffline(false);
+        setLoadError('');
+        return;
+      }
+      if (res.status === 401 || res.status === 403) {
+        setRequiresSignIn(true);
+        setSnapshot(null);
+        latest.current = null;
         setOffline(false);
         setLoadError('');
         try {
-          localStorage.setItem('bh-cache-' + requested, JSON.stringify(data));
+          localStorage.removeItem('bh-cache-live');
         } catch {}
-      } catch {
-        if (activeMode.current !== requested) return;
-        setOffline(true);
-        if (initial) {
-          try {
-            const cached = JSON.parse(
-              localStorage.getItem('bh-cache-' + requested) || 'null',
-            ) as Snapshot | null;
-            if (cached?.state?.entries) setSnapshot(cached);
-            else
-              setLoadError(
-                'Impossible de charger votre espace. Vérifiez votre connexion puis réessayez.',
-              );
-          } catch {
-            setLoadError('Impossible de charger votre espace.');
-          }
-        }
-      } finally {
-        if (activeMode.current === requested) setLoading(false);
+        return;
       }
-    },
-    [mode],
-  );
-  useEffect(() => {
-    const saved = localStorage.getItem('bh-mode');
-    if (saved === 'live') {
-      activeMode.current = 'live';
-      setMode('live');
+      const data = await res.json().catch(() => null);
+      if (!res.ok)
+        throw new Error(data?.error || 'Le serveur du restaurant est temporairement indisponible.');
+      if (!data?.state || !Array.isArray(data.state.entries))
+        throw new Error('Réponse du serveur invalide.');
+      latest.current = data;
+      setSnapshot(data);
+      setRequiresSignIn(false);
+      setOffline(false);
+      setLoadError('');
+      try {
+        localStorage.setItem('bh-cache-live', JSON.stringify(data));
+      } catch {}
+    } catch (e) {
+      const network = !navigator.onLine || e instanceof TypeError;
+      setOffline(network);
+      setLoadError(
+        network
+          ? 'Vous êtes hors connexion. Reconnectez cet appareil pour accéder au restaurant.'
+          : e instanceof Error
+            ? e.message
+            : 'Connexion au restaurant indisponible.',
+      );
+      if (initial) {
+        try {
+          const cached = JSON.parse(localStorage.getItem('bh-cache-live') || 'null');
+          if (cached?.state?.entries) {
+            setSnapshot(cached);
+            latest.current = cached;
+          }
+        } catch {}
+      }
+    } finally {
+      setLoading(false);
     }
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.removeItem('bh-mode');
+      localStorage.removeItem('bh-cache-demo');
+    } catch {}
     const params = new URLSearchParams(location.search);
     if (params.get('tab') === 'team') setTab('team');
     if (params.get('action') === 'expense') setDialog({ type: 'entry', kind: 'expense' });
@@ -235,7 +246,6 @@ export default function Cockpit() {
   }, []);
   useEffect(() => {
     if (!ready) return;
-    activeMode.current = mode;
     setLoading(true);
     latest.current = null;
     setSnapshot(null);
@@ -249,7 +259,7 @@ export default function Cockpit() {
       clearInterval(timer);
       window.removeEventListener('online', online);
     };
-  }, [mode, ready, refresh]);
+  }, [ready, refresh]);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(timer);
@@ -261,12 +271,12 @@ export default function Cockpit() {
     }
   }, [toast]);
   const mutate = async (action: Action, closeAfter = true) => {
-    if (lock.current || offline || !snapshot) return false;
+    if (lock.current || offline || loadError || !snapshot) return false;
     lock.current = true;
     setBusy(true);
     setError('');
     try {
-      const res = await fetch(`/api/state?mode=${mode}`, {
+      const res = await fetch('/api/state', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -277,7 +287,7 @@ export default function Cockpit() {
       });
       const data = await res.json();
       if (!res.ok) {
-        if (res.status === 409) await refresh();
+        if ([401, 403, 409].includes(res.status)) await refresh();
         throw new Error(data.error || 'Enregistrement impossible.');
       }
       latest.current = data;
@@ -442,7 +452,28 @@ export default function Cockpit() {
     setToast('Les pointages ont été exportés.');
     close();
   }
-  const props = { submit: (action: Action) => mutate(action), busy, error };
+  if (requiresSignIn)
+    return (
+      <SignIn
+        onAuthenticated={() => {
+          setRequiresSignIn(false);
+          setLoading(true);
+          void refresh(true);
+        }}
+      />
+    );
+  const unavailable = offline || !!loadError;
+  const props = {
+    submit: (action: Action) => {
+      if (unavailable) {
+        setError(loadError || 'Vous êtes hors connexion.');
+        return Promise.resolve(false);
+      }
+      return mutate(action);
+    },
+    busy,
+    error,
+  };
   return (
     <div
       className="app-shell"
@@ -522,7 +553,7 @@ export default function Cockpit() {
           <div className="topbar-actions">
             <span className="sync-label">
               <span className={`status-dot ${offline ? 'offline-dot' : ''}`} />
-              {offline ? 'Hors connexion' : 'À jour'}
+              {offline ? 'Hors connexion' : loadError ? 'Serveur indisponible' : 'À jour'}
             </span>
             <button
               className="icon-button notification-button"
@@ -542,24 +573,13 @@ export default function Cockpit() {
           </div>
         </header>
         <main id="main-content">
-          {mode === 'demo' && (
-            <div className="demo-banner">
-              <span>
-                <span className="demo-dot" />
-                <strong>Démonstration</strong>
-                <span> Données fictives</span>
-              </span>
-              <button onClick={() => open({ type: 'mode' })}>
-                Mes données <ChevronRight size={14} />
-              </button>
-            </div>
-          )}
-          {offline && (
+          {(offline || (loadError && snapshot)) && (
             <div className="offline-banner">
-              <WifiOff size={16} />
+              {offline ? <WifiOff size={16} /> : <Database size={16} />}
               <span>
-                Hors connexion · consultation de la dernière sauvegarde. Les saisies reprendront au
-                retour du réseau.
+                {offline
+                  ? 'Hors connexion · consultation de la dernière sauvegarde. Les saisies reprendront au retour du réseau.'
+                  : loadError}
               </span>
               <button className="text-button" onClick={() => void refresh(true)}>
                 <RefreshCw size={15} />
@@ -610,7 +630,7 @@ export default function Cockpit() {
                     className="button button-primary"
                     aria-label="Ajouter une écriture"
                     onClick={() => open({ type: 'entry', kind: 'expense' })}
-                    disabled={offline || !state}
+                    disabled={unavailable || !state}
                   >
                     <Plus size={18} />
                     <span>Nouvelle écriture</span>
@@ -621,7 +641,7 @@ export default function Cockpit() {
                 <button
                   className="button button-primary"
                   aria-label="Ajouter un salarié"
-                  disabled={!state || offline}
+                  disabled={!state || unavailable}
                   onClick={() => open({ type: 'employee' })}
                 >
                   <Plus size={18} />
@@ -632,7 +652,7 @@ export default function Cockpit() {
                 <button
                   className="button button-primary"
                   aria-label="Ajouter une note"
-                  disabled={!state || offline}
+                  disabled={!state || unavailable}
                   onClick={() => open({ type: 'note' })}
                 >
                   <Plus size={18} />
@@ -700,8 +720,8 @@ export default function Cockpit() {
               </div>
             ) : loadError && !state ? (
               <div className="connection-error">
-                <WifiOff size={32} />
-                <h2>Retrouvons votre espace</h2>
+                {offline ? <WifiOff size={32} /> : <Database size={32} />}
+                <h2>{offline ? 'Vous êtes hors connexion' : 'Connexion au restaurant'}</h2>
                 <p>{loadError}</p>
                 <button
                   className="button button-primary"
@@ -743,7 +763,7 @@ export default function Cockpit() {
                               <p>Montant total TTC</p>
                               <button
                                 onClick={() => open({ type: 'entry', kind: 'income' })}
-                                disabled={offline}
+                                disabled={unavailable}
                               >
                                 <Plus size={16} />
                                 Ajouter une recette
@@ -884,7 +904,8 @@ export default function Cockpit() {
                           <section className="goal-card">
                             <div className="goal-card-header">
                               <span>
-                                <Target size={18} /> Objectif quotidien
+                                <Target size={18} />
+                                Objectif quotidien
                               </span>
                               <button
                                 aria-label="Modifier l’objectif quotidien"
@@ -893,39 +914,52 @@ export default function Cockpit() {
                                 <MoreHorizontal size={20} />
                               </button>
                             </div>
-                            <div className="goal-content">
-                              <div>
-                                <strong>
-                                  {Math.round(
-                                    Math.min(
-                                      999,
-                                      (totals(state.entries.filter((e) => e.date === today()))
-                                        .income /
-                                        state.goal) *
-                                        100,
-                                    ),
-                                  )}
-                                  <span>%</span>
-                                </strong>
-                                <p>de l’objectif de recettes</p>
+                            {state.goal > 0 ? (
+                              <>
+                                <div className="goal-content">
+                                  <div>
+                                    <strong>
+                                      {Math.round(
+                                        Math.min(
+                                          999,
+                                          (totals(state.entries.filter((e) => e.date === today()))
+                                            .income /
+                                            state.goal) *
+                                            100,
+                                        ),
+                                      )}
+                                      <span>%</span>
+                                    </strong>
+                                    <p>de l’objectif de recettes</p>
+                                  </div>
+                                  <GoalRing
+                                    value={
+                                      totals(state.entries.filter((e) => e.date === today()))
+                                        .income / state.goal
+                                    }
+                                  />
+                                </div>
+                                <div className="goal-card-footer">
+                                  <span>
+                                    {money(
+                                      totals(state.entries.filter((e) => e.date === today()))
+                                        .income,
+                                      false,
+                                    )}{' '}
+                                    encaissés
+                                  </span>
+                                  <span>sur {money(state.goal, false)}</span>
+                                </div>
+                              </>
+                            ) : (
+                              <div className="goal-empty">
+                                <p>Aucun objectif défini pour le moment.</p>
+                                <button onClick={() => selectTab('settings')}>
+                                  Définir mon objectif
+                                  <ChevronRight size={16} />
+                                </button>
                               </div>
-                              <GoalRing
-                                value={
-                                  totals(state.entries.filter((e) => e.date === today())).income /
-                                  state.goal
-                                }
-                              />
-                            </div>
-                            <div className="goal-card-footer">
-                              <span>
-                                {money(
-                                  totals(state.entries.filter((e) => e.date === today())).income,
-                                  false,
-                                )}{' '}
-                                encaissés
-                              </span>
-                              <span>sur {money(state.goal, false)}</span>
-                            </div>
+                            )}
                           </section>
                           <section className="notebook-preview">
                             <span className="notebook-label">
@@ -1012,7 +1046,7 @@ export default function Cockpit() {
                         <button
                           className="button button-soft"
                           onClick={() => open({ type: 'entry', kind: 'income' })}
-                          disabled={offline}
+                          disabled={unavailable}
                         >
                           <ArrowDownLeft size={18} />
                           Ajouter une recette
@@ -1132,15 +1166,7 @@ export default function Cockpit() {
                           Exporter les heures
                         </button>
                       </div>
-                      {mode === 'demo' && (
-                        <div className="team-info">
-                          <CircleHelp size={16} />
-                          <span>
-                            Pour essayer le pointage, utilisez le code <strong>1234</strong>. Chaque
-                            salarié aura son propre code dans votre espace réel.
-                          </span>
-                        </div>
-                      )}
+
                       <div className="employee-grid">
                         {state.employees
                           .filter((e) => e.active)
@@ -1166,7 +1192,7 @@ export default function Cockpit() {
                                   <button
                                     className="icon-button"
                                     aria-label={`Archiver ${e.name}`}
-                                    disabled={offline || !!shift}
+                                    disabled={unavailable || !!shift}
                                     onClick={() => open({ type: 'archive', id: e.id })}
                                   >
                                     <MoreHorizontal size={19} />
@@ -1192,7 +1218,7 @@ export default function Cockpit() {
                                   {!shift ? (
                                     <button
                                       className="button button-primary full"
-                                      disabled={offline}
+                                      disabled={unavailable}
                                       onClick={() => open({ type: 'clock', id: e.id, event: 'in' })}
                                     >
                                       <Play size={16} />
@@ -1202,7 +1228,7 @@ export default function Cockpit() {
                                     <>
                                       <button
                                         className="button button-secondary"
-                                        disabled={offline}
+                                        disabled={unavailable}
                                         onClick={() =>
                                           open({
                                             type: 'clock',
@@ -1220,7 +1246,7 @@ export default function Cockpit() {
                                       </button>
                                       <button
                                         className="button button-dark"
-                                        disabled={offline}
+                                        disabled={unavailable}
                                         onClick={() =>
                                           open({ type: 'clock', id: e.id, event: 'out' })
                                         }
@@ -1353,7 +1379,7 @@ export default function Cockpit() {
                                   className={`note-check ${n.done ? 'checked' : ''}`}
                                   aria-pressed={n.done}
                                   aria-label={`${n.done ? 'Réouvrir' : 'Terminer'} : ${n.title}`}
-                                  disabled={busy || offline}
+                                  disabled={busy || unavailable}
                                   onClick={() =>
                                     void mutate({ type: 'note.toggle', id: n.id }, false)
                                   }
@@ -1393,7 +1419,7 @@ export default function Cockpit() {
                         )}
                         <button
                           className="add-note-card"
-                          disabled={offline}
+                          disabled={unavailable}
                           onClick={() => open({ type: 'note' })}
                         >
                           <span>
@@ -1414,26 +1440,37 @@ export default function Cockpit() {
                           <div>
                             <h3>Burger House</h3>
                             <p>Saint-Rambert-d’Albon</p>
-                            <span className="soft-label">Le cockpit · version 2.0</span>
+                            <span className="soft-label">Le cockpit · version 3.0</span>
                           </div>
                         </div>
-                        <div className="setting-row">
-                          <span>
-                            Espace actif
-                            <small>
-                              {mode === 'demo'
-                                ? 'Des exemples pour explorer les fonctionnalités.'
-                                : 'Vos données réelles, séparées de la démonstration.'}
-                            </small>
-                          </span>
-                          <button
-                            className="button button-secondary"
-                            onClick={() => open({ type: 'mode' })}
-                          >
-                            {mode === 'demo' ? 'Démonstration' : 'Mon restaurant'}
-                            <ArrowLeftRight size={15} />
-                          </button>
-                        </div>
+                        {snapshot.user && (
+                          <div className="setting-row">
+                            <span>
+                              Compte responsable<small>{snapshot.user.email}</small>
+                            </span>
+                            <button
+                              className="button button-secondary"
+                              disabled={busy || offline}
+                              onClick={async () => {
+                                try {
+                                  const result = await authClient.signOut();
+                                  if (result.error) throw new Error();
+                                  localStorage.removeItem('bh-cache-live');
+                                  setSnapshot(null);
+                                  latest.current = null;
+                                  setRequiresSignIn(true);
+                                } catch {
+                                  setToast(
+                                    'Déconnexion impossible. Réessayez avec une connexion réseau.',
+                                  );
+                                }
+                              }}
+                            >
+                              <LogOut size={16} />
+                              Déconnexion
+                            </button>
+                          </div>
+                        )}
                         <div className="setting-row">
                           <span>
                             Sur votre iPhone
@@ -1509,14 +1546,15 @@ export default function Cockpit() {
                               key={state.goal + mode}
                               type="number"
                               name="goal"
-                              defaultValue={state.goal / 100}
+                              defaultValue={state.goal ? state.goal / 100 : ''}
+                              placeholder="Montant de votre objectif"
                               min="1"
                               step="0.01"
                               max="1000000"
                               required
                             />
                           </label>
-                          <button className="button button-primary" disabled={busy || offline}>
+                          <button className="button button-primary" disabled={busy || unavailable}>
                             Enregistrer
                             <Check size={16} />
                           </button>
@@ -1611,7 +1649,7 @@ export default function Cockpit() {
           </div>
           <footer className="app-footer">
             <span>Burger House · Saint-Rambert-d’Albon</span>
-            <span>Le cockpit 2.0</span>
+            <span>Le cockpit 3.0</span>
           </footer>
         </main>
       </div>
@@ -1686,7 +1724,6 @@ export default function Cockpit() {
                 employee={e}
                 shift={active.find((s) => s.employeeId === e.id)}
                 event={dialog.event}
-                demo={mode === 'demo'}
                 {...props}
               />
             </Modal>
@@ -1712,7 +1749,7 @@ export default function Cockpit() {
                 entry={e}
                 busy={busy}
                 error={error}
-                offline={offline}
+                offline={unavailable}
                 onVoid={() => void mutate({ type: 'entry.void', id: e.id })}
               />
             </Modal>
@@ -1784,54 +1821,7 @@ export default function Cockpit() {
           </div>
         </Modal>
       )}
-      {dialog?.type === 'mode' && (
-        <Modal
-          title="Choisir votre espace"
-          subtitle="La démonstration et votre restaurant restent séparés."
-          onClose={close}
-          closing={sheetClosing}
-        >
-          <div className="mode-options">
-            <button
-              className={mode === 'demo' ? 'selected' : ''}
-              disabled={busy}
-              onClick={() => {
-                setMode('demo');
-                localStorage.setItem('bh-mode', 'demo');
-                close();
-              }}
-            >
-              <span className="mode-icon">
-                <Sparkles size={24} />
-              </span>
-              <div>
-                <h3>Démonstration</h3>
-                <p>Des exemples de chiffres, d’équipe et de notes pour découvrir l’app.</p>
-              </div>
-              {mode === 'demo' ? <CircleCheck size={23} /> : <ChevronRight size={20} />}
-            </button>
-            <button
-              className={mode === 'live' ? 'selected' : ''}
-              disabled={busy}
-              onClick={() => {
-                setMode('live');
-                localStorage.setItem('bh-mode', 'live');
-                close();
-                setToast('Bienvenue dans votre espace réel.');
-              }}
-            >
-              <span className="mode-icon">
-                <ShieldCheck size={24} />
-              </span>
-              <div>
-                <h3>Mon restaurant</h3>
-                <p>Un registre vierge pour vos vraies recettes, dépenses et pointages.</p>
-              </div>
-              {mode === 'live' ? <CircleCheck size={23} /> : <ChevronRight size={20} />}
-            </button>
-          </div>
-        </Modal>
-      )}
+
       {dialog?.type === 'audit' && (
         <Modal
           title="Historique d’activité"

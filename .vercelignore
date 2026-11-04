@@ -1,0 +1,8 @@
+.env*
+.data/
+.neon
+.neon.*
+dist/
+out/
+worker/assets.generated.json
+.openai/api-build-backup/

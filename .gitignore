@@ -10,3 +10,7 @@ dist/
 .playwright/
 worker/assets.generated.json
 .openai/api-build-backup/
+.vercel/
+.neon
+.neon.*
+.vercel

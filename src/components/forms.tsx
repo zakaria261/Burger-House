@@ -280,12 +280,10 @@ export function ClockForm({
   submit,
   busy,
   error,
-  demo,
 }: {
   employee: Employee;
   shift?: Shift;
   event: 'in' | 'pause' | 'resume' | 'out';
-  demo: boolean;
 } & Props) {
   const [pin, setPin] = useState('');
   const labels = {
@@ -337,11 +335,6 @@ export function ClockForm({
           required
         />
       </label>
-      {demo && (
-        <p className="demo-pin">
-          Mode démonstration · code : <strong>1234</strong>
-        </p>
-      )}
       <ErrorMessage message={error} />
       <button className="button button-primary full" disabled={busy}>
         {busy ? 'Pointage…' : labels[event]}

@@ -5,7 +5,7 @@ import { csv, duration, shiftMs, totals, inPeriod } from '../src/lib/model';
 import { handleState, Store } from '../src/lib/api';
 const at = new Date('2026-11-04T12:00:00Z');
 test('le pointage déduit une pause, empêche les doubles arrivées et vérifie le code', async () => {
-  let s = await initialState(false);
+  let s = await initialState();
   s = await applyAction(
     s,
     { type: 'employee.add', name: 'Test Employé', role: 'Cuisine', hourlyCost: 1850, pin: '4321' },
@@ -43,18 +43,28 @@ test('le pointage déduit une pause, empêche les doubles arrivées et vérifie 
   assert.ok(s.employees[0].pinHash);
 });
 test('une fin de service pendant une pause déduit toute la pause', async () => {
-  let s = await initialState(true, at);
-  const e = s.employees[2];
-  const before = shiftMs(s.shifts[2], +at);
+  let s = await initialState();
   s = await applyAction(
     s,
-    { type: 'clock', employeeId: e.id, pin: '1234', event: 'out' },
+    { type: 'employee.add', name: 'Employé test', role: 'Cuisine', hourlyCost: 1800, pin: '4321' },
+    at,
+  );
+  const id = s.employees[0].id;
+  s = await applyAction(s, { type: 'clock', employeeId: id, pin: '4321', event: 'in' }, at);
+  s = await applyAction(
+    s,
+    { type: 'clock', employeeId: id, pin: '4321', event: 'pause' },
     new Date(+at + 3600000),
   );
-  assert.equal(shiftMs(s.shifts[2]), before);
+  s = await applyAction(
+    s,
+    { type: 'clock', employeeId: id, pin: '4321', event: 'out' },
+    new Date(+at + 7200000),
+  );
+  assert.equal(shiftMs(s.shifts[0]), 3600000);
 });
 test('les montants restent en centimes et les annulations conservent la trace', async () => {
-  let s = await initialState(false);
+  let s = await initialState();
   const entry = {
     type: 'expense' as const,
     title: 'Pain',
@@ -89,13 +99,14 @@ test('les filtres suivent les périodes et le CSV protège les formules', () => 
   assert.ok(!inPeriod('2025-11-30', '2026-11-04', 'year'));
   assert.ok(csv([['=HYPERLINK("x")', 'ligne\n2']]).includes("'=HYPERLINK"));
 });
-test('les données réelles sont vierges et séparées des exemples', async () => {
-  const a = await initialState(false, at),
-    b = await initialState(true, at);
-  assert.equal(a.entries.length, 0);
-  assert.equal(a.employees.length, 0);
-  assert.ok(b.entries.length > 300);
-  assert.equal(publicState(b).employees[0].pinHash, undefined);
+test('un nouveau restaurant ne contient aucune donnée fictive ni objectif inventé', async () => {
+  const state = await initialState();
+  assert.equal(state.entries.length, 0);
+  assert.equal(state.employees.length, 0);
+  assert.equal(state.shifts.length, 0);
+  assert.equal(state.notes.length, 0);
+  assert.equal(state.audit.length, 0);
+  assert.equal(state.goal, 0);
 });
 test('l’API empêche la perte de modifications et les doublons de requêtes', async () => {
   let snapshot: { state: Awaited<ReturnType<typeof initialState>>; revision: number } | null = null;
@@ -142,4 +153,45 @@ test('l’API empêche la perte de modifications et les doublons de requêtes', 
     store,
   );
   assert.equal(forged.status, 403);
+});
+
+test('l’API refuse le mode démonstration et démarre directement sur le registre réel', async () => {
+  const state = await initialState();
+  let reads = 0;
+  const store: Store = {
+    async read() {
+      reads++;
+      return { state, revision: 0 };
+    },
+    async insert() {},
+    async update() {
+      return true;
+    },
+  };
+  const demo = await handleState(new Request('http://localhost/api/state?mode=demo'), store);
+  assert.equal(demo.status, 400);
+  assert.equal(reads, 0);
+  const real = await handleState(new Request('http://localhost/api/state'), store);
+  assert.equal(real.status, 200);
+  assert.equal((await real.json()).state.entries.length, 0);
+});
+
+test('les requêtes locales conservent la protection contre les origines tierces', async () => {
+  const { isSameOrigin } = await import('../src/lib/origin');
+  assert.equal(
+    isSameOrigin(
+      new Request('http://localhost:3012/api/state', {
+        headers: { host: '127.0.0.1:3012', origin: 'http://127.0.0.1:3012' },
+      }),
+    ),
+    true,
+  );
+  assert.equal(
+    isSameOrigin(
+      new Request('https://burger-house.example/api/state', {
+        headers: { host: 'burger-house.example', origin: 'https://evil.example' },
+      }),
+    ),
+    false,
+  );
 });

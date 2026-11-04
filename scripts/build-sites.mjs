@@ -49,7 +49,7 @@ try {
     .slice(0, 12);
   const sw = Buffer.from(assets['/sw.js'], 'base64')
     .toString()
-    .replace('burger-house-shell-v1', 'burger-house-shell-' + fingerprint)
+    .replace('burger-house-shell-v3', 'burger-house-shell-' + fingerprint)
     .replace(
       "c.addAll(['/','/icons/icon-192.png','/logo-burger-house.jpg'])",
       `c.addAll(${JSON.stringify(precache)})`,

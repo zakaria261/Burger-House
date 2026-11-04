@@ -62,6 +62,8 @@ assert.equal(r.status, 200);
 const empty = await r.json();
 assert.equal(empty.state.entries.length, 0);
 assert.equal(empty.revision, 0);
+assert.equal(empty.state.goal, 0);
+assert.equal(empty.state.employees.length, 0);
 r = await worker.fetch(
   new Request(url + '/api/state?mode=live', {
     headers: { ...headers, 'If-None-Match': '"live-0"' },
@@ -128,15 +130,12 @@ const race = await Promise.all([
 ]);
 assert.deepEqual(race.map((r) => r.status).sort(), [200, 409]);
 r = await worker.fetch(new Request(url + '/api/state?mode=demo', { headers }), env);
-assert.equal(r.status, 200);
-const demo = await r.json();
-assert.ok(demo.state.entries.length > 300);
-assert.equal(demo.state.employees.length, 4);
+assert.equal(r.status, 400);
 r = await worker.fetch(new Request(url + '/api/state?mode=live', { headers }), env);
 const live = await r.json();
 assert.equal(live.state.employees.length, 1);
 assert.equal(live.state.entries.length, 1);
 console.log(
-  'Worker vérifié : ressources Next.js, PWA, authentification, écritures, annulations, conflits, pointage, verrouillage persistant et séparation des espaces.',
+  'Worker vérifié : ressources Next.js, PWA, authentification, écritures, annulations, conflits, pointage, verrouillage persistant et refus des données fictives.',
 );
 sql.close();

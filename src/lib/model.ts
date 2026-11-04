@@ -1,4 +1,4 @@
-export type Mode = 'demo' | 'live';
+export type Mode = 'live';
 export type Period = 'day' | 'month' | 'year';
 export type Tab = 'overview' | 'ledger' | 'team' | 'notebook' | 'settings';
 export const CATEGORIES = [
@@ -60,7 +60,7 @@ export type State = {
   goal: number;
   requestIds: string[];
 };
-export type Snapshot = { state: State; revision: number };
+export type Snapshot = { state: State; revision: number; user?: { email: string; name?: string } };
 export type Action =
   | { type: 'entry.add'; entry: Omit<Entry, 'id' | 'createdAt' | 'voidedAt'> }
   | { type: 'entry.void'; id: string }

@@ -1,4 +1,5 @@
 import { Action, Mode, Snapshot, State } from './model';
+import { isSameOrigin } from './origin';
 import { applyAction, initialState, publicState, ValidationError } from './engine';
 export interface Store {
   revision?(mode: Mode): Promise<number | null>;
@@ -18,8 +19,10 @@ const reply = (data: unknown, status = 200) =>
 export async function handleState(request: Request, store: Store) {
   try {
     const url = new URL(request.url);
-    const mode = url.searchParams.get('mode');
-    if (mode !== 'demo' && mode !== 'live') return reply({ error: 'Espace inconnu.' }, 400);
+    const requested = url.searchParams.get('mode');
+    if (requested && requested !== 'live')
+      return reply({ error: 'Le mode démonstration a été retiré.' }, 400);
+    const mode: Mode = 'live';
     if (request.method === 'GET' && store.revision) {
       const revision = await store.revision(mode);
       if (revision !== null && request.headers.get('if-none-match') === `"${mode}-${revision}"`)
@@ -30,7 +33,7 @@ export async function handleState(request: Request, store: Store) {
     }
     let current = await store.read(mode);
     if (!current) {
-      await store.insert(mode, await initialState(mode === 'demo'));
+      await store.insert(mode, await initialState());
       current = await store.read(mode);
     }
     if (!current) throw new Error('Initialisation impossible');
@@ -46,8 +49,7 @@ export async function handleState(request: Request, store: Store) {
         },
       );
     if (request.method !== 'POST') return reply({ error: 'Méthode interdite' }, 405);
-    const origin = request.headers.get('origin');
-    if (origin && origin !== url.origin) return reply({ error: 'Origine refusée.' }, 403);
+    if (!isSameOrigin(request)) return reply({ error: 'Origine refusée.' }, 403);
     if (!request.headers.get('content-type')?.includes('application/json'))
       return reply({ error: 'Format JSON requis.' }, 415);
     const raw = await request.text();
