@@ -62,11 +62,11 @@ Un motif est obligatoire. Chaque pointage conserve ses versions avant/après, l�
 
 ## Notifications de Douwi
 
-Web Push envoie les arrivées, pauses, reprises et départs aux téléphones abonnés de **Douwi**, selon les préférences de chacun. L’adresse du destinataire reste vide tant qu’elle n’a pas été fournie : aucun autre responsable ne reçoit ces notifications par défaut.
+Web Push envoie les arrivées, pauses, reprises et départs aux téléphones abonnés des responsables désignés, selon les préférences de chacun. `zakaria_rahou@yahoo.fr` est désormais autorisé à les activer. Le compte de Douwi pourra être ajouté lorsqu’il communiquera son adresse. Chaque téléphone doit donner son autorisation ; une adresse email seule ne constitue pas un abonnement Push.
 
-Configurer côté serveur `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (URL HTTPS de l’app) et `PUSH_RECIPIENT_EMAIL`. Générer une seule paire VAPID avec `web-push.generateVAPIDKeys()` et garder la clé privée hors de Git. Quand Douwi donne son adresse : provisionner son compte vérifié dans Neon Auth, l’ajouter à `ADMIN_EMAILS`, définir `PUSH_RECIPIENT_EMAIL` sur cette même adresse, puis redéployer. Les clés VAPID sont déjà configurées sur Vercel ; le destinataire attend son adresse.
+Configurer côté serveur `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (URL HTTPS de l’app) et les destinataires dans `PUSH_RECIPIENT_EMAILS` (liste séparée par des virgules). `PUSH_RECIPIENT_EMAIL` permet aussi de conserver le destinataire Douwi. Générer une seule paire VAPID avec `web-push.generateVAPIDKeys()` et garder la clé privée hors de Git. Quand Douwi donne son adresse : provisionner son compte vérifié dans Neon Auth, l’ajouter à `ADMIN_EMAILS`, définir `PUSH_RECIPIENT_EMAIL` sur cette même adresse, puis redéployer. Les clés VAPID et le destinataire `zakaria_rahou@yahoo.fr` sont configurés sur Vercel. Seules les adresses présentes à la fois dans les destinataires Push et dans `ADMIN_EMAILS` peuvent s’abonner et recevoir les événements. Ajouter Douwi conserve les notifications de Zakaria.
 
-Douwi se connecte ensuite sur son téléphone et choisit **Réglages → Activer sur ce téléphone**. Sur iPhone : iOS 16.4 minimum, app ouverte depuis l’écran d’accueil, puis autorisation du système. Un bouton permet d’envoyer un test et les préférences permettent de choisir les événements. [Documentation Apple / WebKit](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/).
+Chaque responsable se connecte ensuite sur son téléphone et choisit **Réglages → Activer sur ce téléphone**. Sur iPhone : iOS 16.4 minimum, app ouverte depuis l’écran d’accueil, puis autorisation du système. Un bouton permet d’envoyer un test et les préférences permettent de choisir les événements. [Documentation Apple / WebKit](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/).
 
 Le pointage et sa notification sont enregistrés dans la même transaction Postgres. L’envoi s’exécute après la réponse HTTP. Une erreur réseau conserve la notification pour une nouvelle tentative lors d’une requête authentifiée suivante (six tentatives maximum, bail de deux minutes). Ce mécanisme ne possède pas de tâche planifiée indépendante : sans nouvelle visite après un échec, la tentative attend. Les abonnements expirés sont supprimés ; une correction manuelle ne produit pas une fausse notification d’arrivée. Aucun ancien pointage n’est envoyé à l’activation d’un téléphone. La livraison dépend aussi du réseau, des autorisations et des modes de concentration du téléphone.
 
@@ -87,7 +87,7 @@ Les bases SQLite locale, Postgres et D1 sont indépendantes. Les données d’un
 
 Ouvrir l’adresse HTTPS dans Safari, puis **Partager → Sur l’écran d’accueil → Ajouter**. Les instructions figurent également dans les réglages de l’app. Après une première connexion réussie, la dernière vue enregistrée sur cet appareil reste consultable hors connexion. Les nouvelles saisies nécessitent le réseau. La déconnexion efface la copie locale des données du compte.
 
-Le manifeste, les icônes Apple, les zones de sécurité et le service worker sont inclus. Les endpoints API et d’authentification ne sont jamais mis en cache par le service worker.
+Le manifeste, les icônes Apple, les zones de sécurité et le service worker sont inclus. Les endpoints API et d’authentification ne sont jamais mis en cache par le service worker. Le cadre mobile bloque le débordement horizontal et le rebond latéral ; les contrôles, grilles et adresses longues s’adaptent à la largeur de l’écran tout en préservant le défilement vertical et le zoom d’accessibilité.
 
 ## Vérifications
 

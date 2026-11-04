@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { initialState, applyAction } from '../src/lib/engine';
 import { shiftMs, totals } from '../src/lib/model';
 import { parisCandidates, parisInput, parisToISO } from '../src/lib/paris-time';
-import { validSubscription, pushConfig } from '../src/lib/push';
+import { validSubscription, pushConfig, pushRecipients } from '../src/lib/push';
 const now = new Date('2026-11-04T20:00:00Z');
 async function team() {
   return applyAction(
@@ -121,11 +121,39 @@ test('les horaires restent en heure de Paris, y compris aux changements d’heur
     '2026-11-04T12:00:26.123Z',
   );
 });
-test('les notifications sont réservées au futur compte de Douwi et aux services Push reconnus', () => {
-  const old = process.env.PUSH_RECIPIENT_EMAIL;
-  delete process.env.PUSH_RECIPIENT_EMAIL;
-  assert.equal(pushConfig('zakaria_rahou@yahoo.fr').canSubscribe, false);
-  if (old !== undefined) process.env.PUSH_RECIPIENT_EMAIL = old;
+test('les destinataires Push incluent Zakaria et le futur compte de Douwi sans ouvrir les autres comptes', () => {
+  const names = [
+    'ADMIN_EMAILS',
+    'PUSH_RECIPIENT_EMAIL',
+    'PUSH_RECIPIENT_EMAILS',
+    'VAPID_PUBLIC_KEY',
+    'VAPID_PRIVATE_KEY',
+  ] as const;
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  try {
+    process.env.ADMIN_EMAILS = 'zakaria_rahou@yahoo.fr,douwi@example.com,autre@example.com';
+    process.env.PUSH_RECIPIENT_EMAILS =
+      ' ZAKARIA_RAHOU@yahoo.fr,zakaria_rahou@yahoo.fr,intrus@example.com';
+    delete process.env.PUSH_RECIPIENT_EMAIL;
+    process.env.VAPID_PUBLIC_KEY = 'test-public-key';
+    process.env.VAPID_PRIVATE_KEY = 'test-private-key';
+    assert.deepEqual(pushRecipients(), ['zakaria_rahou@yahoo.fr']);
+    assert.equal(pushConfig('zakaria_rahou@yahoo.fr').canSubscribe, true);
+    assert.equal(pushConfig('autre@example.com').canSubscribe, false);
+    process.env.PUSH_RECIPIENT_EMAIL = 'douwi@example.com';
+    assert.equal(pushConfig('douwi@example.com').canSubscribe, true);
+    assert.equal(pushConfig('zakaria_rahou@yahoo.fr').canSubscribe, true);
+    assert.equal(pushConfig('intrus@example.com').canSubscribe, false);
+    delete process.env.VAPID_PRIVATE_KEY;
+    assert.equal(pushConfig('zakaria_rahou@yahoo.fr').canSubscribe, false);
+  } finally {
+    for (const name of names) {
+      if (previous[name] === undefined) delete process.env[name];
+      else process.env[name] = previous[name];
+    }
+  }
+});
+test('les abonnements Push acceptent uniquement les services reconnus', () => {
   const keys = { auth: 'a'.repeat(22), p256dh: 'a'.repeat(87) };
   assert.ok(validSubscription({ endpoint: 'https://web.push.apple.com/test', keys }));
   for (const endpoint of [

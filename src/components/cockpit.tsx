@@ -644,6 +644,7 @@ export default function Cockpit() {
                 <>
                   <button
                     className="button button-secondary"
+                    aria-label="Ajouter un pointage oublié"
                     disabled={!state?.employees.some((e) => e.active) || unavailable}
                     onClick={() => open({ type: 'shift' })}
                   >

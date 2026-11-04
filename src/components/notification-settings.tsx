@@ -2,7 +2,6 @@
 import { useEffect, useState } from 'react';
 import { Bell, Check, Smartphone } from 'lucide-react';
 type Config = {
-  recipientName: string;
   recipientConfigured: boolean;
   canSubscribe: boolean;
   publicKey: string;
@@ -34,6 +33,23 @@ export default function NotificationSettings() {
   const [needsInstall, setNeedsInstall] = useState(false);
   const load = async () => {
     const data = (await api('GET')) as Config;
+    if (
+      data.canSubscribe &&
+      data.subscribed &&
+      'Notification' in window &&
+      'serviceWorker' in navigator
+    ) {
+      const registration = await navigator.serviceWorker.getRegistration('/');
+      const subscription = await registration?.pushManager?.getSubscription();
+      if (Notification.permission !== 'granted' || !subscription) {
+        data.subscribed = false;
+        setMessage(
+          Notification.permission === 'denied'
+            ? 'Les notifications sont bloquées dans les réglages du téléphone. Autorisez Burger House, puis réactivez-les ici.'
+            : 'Réactivez les notifications sur ce téléphone.',
+        );
+      }
+    }
     setConfig(data);
     setEvents([...data.events]);
   };
@@ -50,10 +66,10 @@ export default function NotificationSettings() {
   }, []);
   async function activate() {
     // Ask during the tap gesture, before any network or service-worker wait (required on iOS).
-    const permission = Notification.requestPermission();
     setBusy(true);
     setMessage('');
     try {
+      const permission = Notification.requestPermission();
       if ((await permission) !== 'granted')
         throw new Error(
           'Autorisez les notifications dans les réglages du téléphone pour recevoir les pointages.',
@@ -110,7 +126,7 @@ export default function NotificationSettings() {
         </span>
         <div>
           <h3>Les pointages, en direct</h3>
-          <p>Les notifications de Douwi.</p>
+          <p>Votre équipe, sur votre téléphone.</p>
         </div>
         {config?.subscribed && (
           <span className="soft-label">
@@ -120,8 +136,8 @@ export default function NotificationSettings() {
         )}
       </div>
       <p className="notification-copy">
-        Un membre de l’équipe commence, fait une pause ou termine son service : Douwi reçoit
-        l’information sur son téléphone, même quand l’app est fermée.
+        Un membre de l’équipe commence, fait une pause ou termine son service : recevez
+        l’information sur ce téléphone, même quand l’app est fermée.
       </p>
       {!config ? (
         <p className="field-help">{message || 'Vérification des notifications…'}</p>
@@ -129,16 +145,16 @@ export default function NotificationSettings() {
         <div className="info-box">
           <Smartphone size={20} />
           <p>
-            Prêt pour Douwi. Son adresse de connexion sera renseignée plus tard. Les notifications
-            pourront alors être activées sur son téléphone.
+            Les notifications seront disponibles après la configuration des destinataires du
+            restaurant.
           </p>
         </div>
       ) : !config.canSubscribe ? (
         <div className="info-box">
           <Smartphone size={20} />
           <p>
-            Douwi doit se connecter avec son propre compte pour activer les notifications sur son
-            téléphone.
+            Les notifications ne sont pas encore activées pour ce compte. Utilisez un compte
+            autorisé par le responsable.
           </p>
         </div>
       ) : (

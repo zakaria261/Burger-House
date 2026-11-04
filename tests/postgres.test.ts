@@ -85,26 +85,32 @@ test(
       const envKeys = [
         'ADMIN_EMAILS',
         'PUSH_RECIPIENT_EMAIL',
+        'PUSH_RECIPIENT_EMAILS',
         'VAPID_PUBLIC_KEY',
         'VAPID_PRIVATE_KEY',
       ] as const;
       const old = Object.fromEntries(envKeys.map((k) => [k, process.env[k]]));
       try {
         const keys = webpush.generateVAPIDKeys();
-        process.env.ADMIN_EMAILS = user.email;
+        process.env.ADMIN_EMAILS = user.email + ',zakaria_rahou@yahoo.fr,autre@example.com';
+        process.env.PUSH_RECIPIENT_EMAILS = 'zakaria_rahou@yahoo.fr';
         process.env.PUSH_RECIPIENT_EMAIL = user.email;
         process.env.VAPID_PUBLIC_KEY = keys.publicKey;
         process.env.VAPID_PRIVATE_KEY = keys.privateKey;
-        await pool.query(
-          'INSERT INTO push_subscriptions(id,device_id,owner_email,endpoint,keys,events) VALUES(gen_random_uuid(),$1,$2,$3,$4,$5)',
-          [
-            device.id,
-            user.email,
-            'https://web.push.apple.com/test-only-no-delivery',
-            JSON.stringify({ auth: 'a'.repeat(22), p256dh: 'a'.repeat(87) }),
-            JSON.stringify(['in', 'out']),
-          ],
-        );
+        for (const email of [user.email, 'zakaria_rahou@yahoo.fr', 'autre@example.com']) {
+          const currentDevice =
+            email === user.email ? device : await createDevice(pool, { ...user, id: email, email });
+          await pool.query(
+            'INSERT INTO push_subscriptions(id,device_id,owner_email,endpoint,keys,events) VALUES(gen_random_uuid(),$1,$2,$3,$4,$5)',
+            [
+              currentDevice.id,
+              email,
+              'https://web.push.apple.com/test-only-' + encodeURIComponent(email),
+              JSON.stringify({ auth: 'a'.repeat(22), p256dh: 'a'.repeat(87) }),
+              JSON.stringify(['in', 'out']),
+            ],
+          );
+        }
         const current = (await store.read('live'))!;
         const staff = await applyAction(current.state, {
           type: 'employee.add',
@@ -123,13 +129,19 @@ test(
         const clocked = await applyAction(staff, clock);
         assert.equal(await store.update('live', current.revision + 1, clocked, clock), true);
         assert.equal(await store.update('live', current.revision + 1, clocked, clock), false);
-        assert.equal((await pool.query('SELECT count(*) FROM push_deliveries')).rows[0].count, '1');
+        assert.equal((await pool.query('SELECT count(*) FROM push_deliveries')).rows[0].count, '2');
         const sent: string[] = [];
         await dispatchPush(pool, async (_sub, payload) => {
           sent.push(String(payload));
           return { statusCode: 201, body: '', headers: {} };
         });
-        assert.equal(sent.length, 1);
+        assert.equal(sent.length, 2);
+        const owners = (
+          await pool.query(
+            'SELECT s.owner_email FROM push_deliveries p JOIN push_subscriptions s ON s.id=p.subscription_id ORDER BY s.owner_email',
+          )
+        ).rows.map((r) => r.owner_email);
+        assert.deepEqual(owners, [user.email, 'zakaria_rahou@yahoo.fr']);
         assert.match(sent[0], /commencé son service/);
         await dispatchPush(pool, async () => {
           throw new Error('A delivered event must not be sent twice');
@@ -137,7 +149,7 @@ test(
         assert.equal(
           (await pool.query('SELECT count(*) FROM push_deliveries WHERE delivered_at IS NOT NULL'))
             .rows[0].count,
-          '1',
+          '2',
         );
         // Transient network failures are retained; the lease prevents a second immediate send.
         const out = { ...clock, event: 'out' as const };
@@ -167,7 +179,7 @@ test(
         });
         assert.equal(
           (await pool.query('SELECT count(*) FROM push_subscriptions')).rows[0].count,
-          '0',
+          '1',
         );
         await revokeDevice(pool, device.token);
         assert.equal(await readDevice(pool, device.token), null);

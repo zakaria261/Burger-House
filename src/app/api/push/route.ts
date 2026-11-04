@@ -38,23 +38,30 @@ async function handle(request: Request) {
       return reply(
         {
           error: config.recipientConfigured
-            ? 'Connectez-vous avec le compte de Douwi.'
-            : 'L’adresse de Douwi sera renseignée prochainement.',
+            ? 'Les notifications ne sont pas activées pour ce compte.'
+            : 'Aucun destinataire de notifications n’est encore configuré.',
         },
         403,
       );
     const raw = await request.text();
     if (raw.length > 5000) return reply({ error: 'Envoi trop volumineux.' }, 413);
-    const body = JSON.parse(raw);
+    let body;
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      return reply({ error: 'Requête JSON invalide.' }, 400);
+    }
+    if (!body || typeof body !== 'object') return reply({ error: 'Requête invalide.' }, 400);
     if (body.type === 'test') {
       // Throttled to one test per minute per device.
       const recent = await db.query(
-        "SELECT 1 FROM push_deliveries p JOIN push_subscriptions s ON s.id=p.subscription_id WHERE s.device_id=$1 AND p.payload->>'title'='Burger House · Douwi' AND p.available_at>now()-interval '1 minute' LIMIT 1",
+        "SELECT 1 FROM push_deliveries p JOIN push_subscriptions s ON s.id=p.subscription_id WHERE s.device_id=$1 AND p.payload->>'test'='true' AND p.available_at>now()-interval '1 minute' LIMIT 1",
         [principal.deviceId],
       );
       if (recent.rowCount)
         return reply({ error: 'Patientez une minute avant un autre test.' }, 429);
-      await queueTest(db, principal.deviceId);
+      if (!(await queueTest(db, principal.deviceId)))
+        return reply({ error: 'Activez d’abord les notifications sur ce téléphone.' }, 409);
     } else {
       if (
         !validSubscription(body.subscription) ||
