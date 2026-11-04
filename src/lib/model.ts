@@ -34,6 +34,19 @@ export type Employee = {
   active: boolean;
   pinHash?: string;
 };
+export type ShiftTimes = {
+  startedAt: string;
+  endedAt?: string;
+  pauseStartedAt?: string;
+  pauseMs: number;
+};
+export type ShiftCorrection = {
+  at: string;
+  actor: string;
+  reason: string;
+  before: ShiftTimes | null;
+  after: ShiftTimes;
+};
 export type Shift = {
   id: string;
   employeeId: string;
@@ -41,6 +54,7 @@ export type Shift = {
   endedAt?: string;
   pauseStartedAt?: string;
   pauseMs: number;
+  corrections?: ShiftCorrection[];
 };
 export type Note = {
   id: string;
@@ -67,6 +81,22 @@ export type Action =
   | { type: 'employee.add'; name: string; role: string; hourlyCost: number; pin: string }
   | { type: 'employee.archive'; id: string }
   | { type: 'clock'; employeeId: string; pin: string; event: 'in' | 'pause' | 'resume' | 'out' }
+  | {
+      type: 'shift.correct';
+      id: string;
+      startedAt: string;
+      endedAt?: string;
+      pauseMinutes: number;
+      reason: string;
+    }
+  | {
+      type: 'shift.add';
+      employeeId: string;
+      startedAt: string;
+      endedAt?: string;
+      pauseMinutes: number;
+      reason: string;
+    }
   | { type: 'note.add'; title: string; body: string; category: Note['category'] }
   | { type: 'note.toggle'; id: string }
   | { type: 'goal'; amount: number };

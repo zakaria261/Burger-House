@@ -12,21 +12,23 @@
     "db:migrate": "node --env-file=.env.local scripts/migrate-postgres.mjs"
   },
   "dependencies": {
+    "@neon/auth": "^0.8.2",
+    "@vercel/functions": "^3.10.6",
+    "lucide-react": "^0.468.0",
     "next": "^16.0.0",
+    "pg": "^8.16.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "lucide-react": "^0.468.0",
-    "pg": "^8.16.3",
-    "@vercel/functions": "^3.10.6",
-    "@neon/auth": "^0.8.2"
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@types/pg": "^8.15.5",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "typescript": "^5.9.0",
-    "tsx": "^4.20.0",
+    "@types/web-push": "^3.6.4",
     "esbuild": "^0.25.0",
-    "@types/pg": "^8.15.5"
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
   }
 }

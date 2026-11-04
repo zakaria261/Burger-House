@@ -1,4 +1,6 @@
 import { authServer, authorizedEmail } from '@/lib/auth/server';
+import { cookieToken, deviceCookie, revokeDevice } from '@/lib/auth/device';
+import { databasePool } from '@/lib/postgres';
 import { isSameOrigin } from '@/lib/origin';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,6 +36,28 @@ async function handle(request: Request, context: { params: Promise<{ path: strin
       );
   }
   try {
+    if (path === 'sign-out' && request.method === 'POST') {
+      await revokeDevice(databasePool(), cookieToken(request));
+      let response: Response;
+      try {
+        response = await authServer().handler().POST(request, context);
+      } catch {
+        response = Response.json({ success: true });
+      }
+      // Local credentials must be removed even when the provider session has expired.
+      if (!response.ok) response = Response.json({ success: true });
+      for (const cookie of request.headers.get('cookie')?.split(';') ?? []) {
+        const name = cookie.trim().split('=')[0];
+        if (/^__Secure-neon-auth\.[a-zA-Z0-9_.-]+$/.test(name))
+          response.headers.append(
+            'Set-Cookie',
+            `${name}=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0`,
+          );
+      }
+      response.headers.append('Set-Cookie', deviceCookie('', true));
+      response.headers.set('Cache-Control', 'no-store');
+      return response;
+    }
     const methods = authServer().handler();
     const method = request.method as keyof typeof methods;
     const handler = methods[method];

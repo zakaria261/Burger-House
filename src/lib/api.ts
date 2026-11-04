@@ -5,7 +5,7 @@ export interface Store {
   revision?(mode: Mode): Promise<number | null>;
   read(mode: Mode): Promise<Snapshot | null>;
   insert(mode: Mode, state: State): Promise<void>;
-  update(mode: Mode, revision: number, state: State): Promise<boolean>;
+  update(mode: Mode, revision: number, state: State, action?: Action): Promise<boolean>;
   failures?(key: string): Promise<{ count: number; until: number } | null>;
   fail?(key: string): Promise<void>;
   resetFailures?(key: string): Promise<void>;
@@ -16,7 +16,7 @@ const reply = (data: unknown, status = 200) =>
     status,
     headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' },
   });
-export async function handleState(request: Request, store: Store) {
+export async function handleState(request: Request, store: Store, actor?: string) {
   try {
     const url = new URL(request.url);
     const requested = url.searchParams.get('mode');
@@ -81,7 +81,7 @@ export async function handleState(request: Request, store: Store) {
     }
     let next: State;
     try {
-      next = await applyAction(current.state, body.action);
+      next = await applyAction(current.state, body.action, new Date(), actor);
     } catch (e) {
       if (key && e instanceof Error && e.message === 'Code de pointage incorrect.') {
         if (store.fail) await store.fail(key);
@@ -100,7 +100,7 @@ export async function handleState(request: Request, store: Store) {
       else attempts.delete(key);
     }
     next.requestIds = [...current.state.requestIds.slice(-199), body.requestId];
-    if (!(await store.update(mode, current.revision, next)))
+    if (!(await store.update(mode, current.revision, next, body.action)))
       return reply(
         { error: 'Une modification simultanée a été détectée. Actualisez puis réessayez.' },
         409,

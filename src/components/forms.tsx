@@ -12,6 +12,7 @@ import {
   money,
   today,
 } from '@/lib/model';
+import { parisInput, parisCandidates, parisToISO } from '@/lib/paris-time';
 import { Avatar } from './ui';
 type Props = { submit: (action: Action) => Promise<boolean>; busy: boolean; error: string };
 function ErrorMessage({ message }: { message: string }) {
@@ -387,6 +388,191 @@ export function NoteForm({ submit, busy, error }: Props) {
         {busy ? 'Enregistrement…' : 'Ajouter au cahier'}
         <Plus size={18} />
       </button>
+    </form>
+  );
+}
+
+export function ShiftForm({
+  employees,
+  shift,
+  submit,
+  busy,
+  error,
+}: { employees: Employee[]; shift?: Shift } & Props) {
+  const [start, setStart] = useState(shift ? parisInput(shift.startedAt) : '');
+  const [end, setEnd] = useState(
+    shift?.endedAt ? parisInput(shift.endedAt) : parisInput(new Date()),
+  );
+  const [closed, setClosed] = useState(!!shift?.endedAt || !shift);
+  const [startOccurrence, setStartOccurrence] = useState('');
+  const [endOccurrence, setEndOccurrence] = useState('');
+  const initialPause = String(Math.round((shift?.pauseMs ?? 0) / 600) / 100);
+  const [pause, setPause] = useState(initialPause);
+  const [localError, setLocalError] = useState('');
+  const dateTime = (
+    value: string,
+    set: (v: string) => void,
+    occurrence: string,
+    select: (v: string) => void,
+    original?: string,
+  ) => (
+    <>
+      <input
+        type="datetime-local"
+        value={value}
+        onChange={(e) => {
+          set(e.target.value);
+          select('');
+        }}
+        max={parisInput(new Date())}
+        min="2000-01-01T00:00"
+        required
+      />
+      {parisCandidates(value).length > 1 && (!original || parisInput(original) !== value) && (
+        <select
+          aria-label="Passage lors du changement d’heure"
+          value={occurrence}
+          onChange={(e) => select(e.target.value)}
+          required
+        >
+          <option value="">Choisir le passage…</option>
+          <option value="0">Premier passage · heure d’été</option>
+          <option value="1">Second passage · heure d’hiver</option>
+        </select>
+      )}
+    </>
+  );
+  const formatTimes = (value: { startedAt: string; endedAt?: string; pauseMs: number } | null) =>
+    value
+      ? `${parisInput(value.startedAt).replace('T', ' à ')} → ${value.endedAt ? parisInput(value.endedAt).replace('T', ' à ') : 'En cours'} · ${Math.round(value.pauseMs / 60000)} min de pause`
+      : 'Aucun pointage';
+  return (
+    <form
+      className="form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        setLocalError('');
+        try {
+          const form = new FormData(e.currentTarget);
+          const times = {
+            startedAt: parisToISO(start, startOccurrence, shift?.startedAt),
+            endedAt: closed ? parisToISO(end, endOccurrence, shift?.endedAt) : undefined,
+            pauseMinutes: pause === initialPause && shift ? shift.pauseMs / 60000 : Number(pause),
+            reason: String(form.get('reason')),
+          };
+          void submit(
+            shift
+              ? { type: 'shift.correct', id: shift.id, ...times }
+              : { type: 'shift.add', employeeId: String(form.get('employeeId')), ...times },
+          );
+        } catch (err) {
+          setLocalError((err as Error).message);
+        }
+      }}
+    >
+      <label>
+        Salarié
+        <select
+          name="employeeId"
+          defaultValue={shift?.employeeId ?? ''}
+          disabled={!!shift}
+          required
+        >
+          <option value="" disabled>
+            Choisir un salarié
+          </option>
+          {employees
+            .filter((e) => e.active || e.id === shift?.employeeId)
+            .map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.name}
+              </option>
+            ))}
+        </select>
+      </label>
+      <label>
+        Arrivée · heure de Paris
+        {dateTime(start, setStart, startOccurrence, setStartOccurrence, shift?.startedAt)}
+      </label>
+      <label className="check-field">
+        <input
+          type="checkbox"
+          checked={closed}
+          onChange={(e) => {
+            setClosed(e.target.checked);
+            if (e.target.checked && shift?.pauseStartedAt)
+              setPause(
+                String(
+                  Math.round(
+                    (shift.pauseMs + Date.now() - Date.parse(shift.pauseStartedAt)) / 600,
+                  ) / 100,
+                ),
+              );
+          }}
+        />
+        Service terminé
+      </label>
+      {closed && (
+        <label>
+          Départ · heure de Paris
+          {dateTime(end, setEnd, endOccurrence, setEndOccurrence, shift?.endedAt)}
+        </label>
+      )}
+      <label>
+        {!closed && shift?.pauseStartedAt
+          ? 'Pauses déjà terminées (minutes)'
+          : 'Total des pauses (minutes)'}
+        <input
+          type="number"
+          min="0"
+          step="any"
+          value={pause}
+          onChange={(e) => setPause(e.target.value)}
+          required
+        />
+      </label>
+      {!closed && shift?.pauseStartedAt && (
+        <p className="field-help">
+          La pause en cours reste active. Elle sera déduite automatiquement à la reprise.
+        </p>
+      )}
+      <label>
+        Motif obligatoire
+        <textarea
+          name="reason"
+          minLength={5}
+          maxLength={500}
+          rows={2}
+          placeholder="Ex. : départ oublié, confirmé avec le salarié."
+          required
+        />
+      </label>
+      <div className="info-box">
+        <LockKeyhole size={18} />
+        <p>
+          Modification du responsable. L’ancien horaire, le motif et votre compte seront conservés.
+        </p>
+      </div>
+      <ErrorMessage message={localError || error} />
+      <button className="button button-primary full" disabled={busy}>
+        {busy ? 'Enregistrement…' : shift ? 'Enregistrer la correction' : 'Ajouter le pointage'}
+        <Check size={18} />
+      </button>
+      {!!shift?.corrections?.length && (
+        <div className="correction-history">
+          <h3>Historique des corrections</h3>
+          {[...shift.corrections].reverse().map((c, i) => (
+            <details key={i}>
+              <summary>
+                {parisInput(c.at).replace('T', ' · ')} · {c.reason}
+              </summary>
+              <p>Par {c.actor}</p>
+              <p>Avant : {formatTimes(c.before)}</p>
+              <p>Après : {formatTimes(c.after)}</p>
+            </details>
+          ))}
+        </div>
+      )}
     </form>
   );
 }

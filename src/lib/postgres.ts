@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import { attachDatabasePool } from '@vercel/functions';
+import { enqueueClock } from './push';
 import type { Store } from './api';
 import type { Mode, State } from './model';
 import { changes, metadata, pack, unpack, type RecordRow } from './records';
@@ -78,7 +79,7 @@ export function createPostgresStore(db: Pool): Store {
         client.release();
       }
     },
-    async update(mode: Mode, revision: number, state: State) {
+    async update(mode: Mode, revision: number, state: State, action) {
       const client = await db.connect();
       try {
         await client.query('BEGIN');
@@ -114,6 +115,7 @@ export function createPostgresStore(db: Pool): Store {
           'UPDATE app_state SET revision = revision + 1, data = $1, token = $2 WHERE mode = $3',
           [metadata(state), crypto.randomUUID(), mode],
         );
+        await enqueueClock(client, state, action);
         await client.query('COMMIT');
         return true;
       } catch (e) {

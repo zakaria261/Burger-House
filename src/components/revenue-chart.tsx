@@ -41,7 +41,7 @@ export default function RevenueChart({
   }, [date, period, entries]);
   const selected = selection === null ? points.length - 1 : Math.min(points.length - 1, selection);
   const p = points[selected];
-  const max = Math.max(...points.map((p) => p.income), 100);
+  const max = Math.max(...points.flatMap((p) => [p.income, p.expense]), 100);
   const coords = points.map((p, i) => ({
     x: 12 + (i * 476) / (points.length - 1),
     y: 140 - (p.income / max) * 111,
@@ -53,6 +53,11 @@ export default function RevenueChart({
         : `${s} C${(coords[i - 1].x + p.x) / 2},${coords[i - 1].y} ${(coords[i - 1].x + p.x) / 2},${p.y} ${p.x},${p.y}`,
     '',
   );
+  const expenseCoords = points.map((p, i) => ({
+    x: coords[i].x,
+    y: 140 - (p.expense / max) * 111,
+  }));
+  const expensePath = expenseCoords.map((p, i) => `${i ? 'L' : 'M'}${p.x},${p.y}`).join(' ');
   return (
     <div className={`revenue-chart ${selection !== null ? 'chart-inspecting' : ''}`}>
       <div className="chart-top">
@@ -61,18 +66,24 @@ export default function RevenueChart({
             ? period === 'day'
               ? 'Les 7 derniers jours'
               : period === 'month'
-                ? 'Recettes par période de 4 jours'
-                : 'Recettes mensuelles'
+                ? 'Par période de 4 jours'
+                : 'Évolution mensuelle'
             : label(p.date, period, true)}
         </span>
-        <strong>
+        <strong className="chart-legend">
           {selection === null ? (
             <>
-              <i />
-              Recettes
+              <span>
+                <i />
+                Recettes
+              </span>
+              <span className="expense-key">
+                <i />
+                Dépenses
+              </span>
             </>
           ) : (
-            money(p.income)
+            <span>Net {money(p.income - p.expense)}</span>
           )}
         </strong>
       </div>
@@ -80,11 +91,11 @@ export default function RevenueChart({
         className="chart-interaction"
         role="slider"
         tabIndex={0}
-        aria-label="Explorer les recettes"
+        aria-label="Explorer les recettes, dépenses et gains nets"
         aria-valuemin={0}
         aria-valuemax={points.length - 1}
         aria-valuenow={selected}
-        aria-valuetext={`${label(p.date, period, true)} : ${money(p.income)}`}
+        aria-valuetext={`${label(p.date, period, true)} : recettes ${money(p.income)}, dépenses ${money(p.expense)}, gain net ${money(p.income - p.expense)}`}
         onKeyDown={(e) => {
           if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
             e.preventDefault();
@@ -127,6 +138,7 @@ export default function RevenueChart({
           ))}
           <path d={`${path} L488,150 L12,150Z`} fill={`url(#${id})`} />
           <path className="chart-line" d={path} />
+          <path className="chart-line chart-expense-line" d={expensePath} />
           {selection !== null && (
             <line
               className="chart-selection-line"
@@ -134,6 +146,14 @@ export default function RevenueChart({
               x2={coords[selected].x}
               y1="15"
               y2="150"
+            />
+          )}
+          {selection !== null && (
+            <circle
+              className="chart-expense-point"
+              cx={expenseCoords[selected].x}
+              cy={expenseCoords[selected].y}
+              r="5"
             />
           )}
           <circle
@@ -144,6 +164,16 @@ export default function RevenueChart({
           />
         </svg>
       </div>
+      {selection !== null && (
+        <div className="chart-readout">
+          <span>
+            Recettes <b>{money(p.income)}</b>
+          </span>
+          <span>
+            Dépenses <b>{money(p.expense)}</b>
+          </span>
+        </div>
+      )}
       <div className="chart-labels">
         {points.map((p, i) => (
           <span className={selection === i ? 'selected' : ''} key={p.date}>

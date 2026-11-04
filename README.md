@@ -11,7 +11,7 @@ La version 3 ne contient aucun mode de démonstration et n’injecte ni chiffre 
 - Cahier de service, objectif à définir, exports CSV et sauvegarde JSON sans codes de pointage.
 - Annulation d’une écriture sans suppression de sa trace.
 
-Les montants sont stockés en centimes. Le solde est `recettes encaissées − dépenses saisies`. Le coût horaire des pointages est une estimation distincte : il ne crée pas automatiquement une dépense salariale et ne constitue pas un calcul de paie.
+Les montants sont stockés en centimes. Le gain net mis en avant est `recettes encaissées − dépenses saisies`. Le coût horaire des pointages est une estimation distincte : il ne crée pas automatiquement une dépense salariale et ne constitue pas un calcul de paie.
 
 ## Hébergement Vercel
 
@@ -46,13 +46,29 @@ Le script utilise la connexion directe, une transaction et un verrou. Il refuse 
 
 ### Accès privé
 
-L’accès passe par un code à usage unique envoyé à l’adresse autorisée du responsable. Les comptes autorisés sont provisionnés dans Neon Auth ; l’inscription publique est désactivée. Les routes de données vérifient la session, l’adresse autorisée et sa vérification avant tout accès à Postgres.
+L’accès passe par un code à usage unique envoyé à l’adresse autorisée du responsable. Les comptes autorisés sont provisionnés dans Neon Auth ; l’inscription publique est désactivée. Après vérification du code, un identifiant d’appareil opaque est conservé dans un cookie `__Host-` HttpOnly, Secure, SameSite=Lax. Seule son empreinte est stockée dans Postgres. Cette session reste valable jusqu’à la déconnexion volontaire ou la révocation ; le cookie est renouvelé à chaque visite (400 jours de conservation demandés au navigateur). L’expiration de la session OTP ne déconnecte plus l’appareil. Les routes de données vérifient la session et l’adresse autorisée à chaque accès. iOS ou le navigateur peuvent néanmoins supprimer les données du site ; une nouvelle connexion devient alors nécessaire. La déconnexion révoque la session serveur, annule les notifications de cet appareil et efface les cookies et la copie locale.
 
 Les codes personnels des salariés servent au pointage sur un appareil connecté au compte responsable. Ils ne donnent pas accès aux finances depuis un compte distinct.
 
 L’envoi des codes utilise le fournisseur email configuré dans Neon Auth. Un fournisseur SMTP dédié est à configurer pour l’exploitation courante, selon les [recommandations Neon](https://neon.com/docs/auth/production-checklist).
 
 Une API indisponible et une véritable coupure réseau sont signalées séparément. Une absence de configuration renvoie un diagnostic explicite, sans repli vers une fausse base ou des données d’exemple.
+
+## Pointages oubliés et corrections
+
+Dans **Équipe → Ajouter un pointage**, le responsable peut enregistrer un service oublié. Le crayon de chaque ligne permet de corriger l’arrivée, le départ et les pauses, ou de terminer un service resté ouvert. Les horaires sont interprétés en heure de Paris ; les heures ambiguës au changement d’heure demandent de choisir le passage. Les chevauchements, horaires futurs et pauses trop longues sont refusés côté serveur.
+
+Un motif est obligatoire. Chaque pointage conserve ses versions avant/après, l’auteur et l’horodatage dans son propre historique, y compris après la rotation du journal général. La correction recalcule les heures et leur coût estimé. Pour un service encore en pause, le champ représente les pauses déjà terminées ; en fermant ce service, il représente le total des pauses.
+
+## Notifications de Douwi
+
+Web Push envoie les arrivées, pauses, reprises et départs aux téléphones abonnés de **Douwi**, selon les préférences de chacun. L’adresse du destinataire reste vide tant qu’elle n’a pas été fournie : aucun autre responsable ne reçoit ces notifications par défaut.
+
+Configurer côté serveur `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (URL HTTPS de l’app) et `PUSH_RECIPIENT_EMAIL`. Générer une seule paire VAPID avec `web-push.generateVAPIDKeys()` et garder la clé privée hors de Git. Quand Douwi donne son adresse : provisionner son compte vérifié dans Neon Auth, l’ajouter à `ADMIN_EMAILS`, définir `PUSH_RECIPIENT_EMAIL` sur cette même adresse, puis redéployer. Les clés VAPID sont déjà configurées sur Vercel ; le destinataire attend son adresse.
+
+Douwi se connecte ensuite sur son téléphone et choisit **Réglages → Activer sur ce téléphone**. Sur iPhone : iOS 16.4 minimum, app ouverte depuis l’écran d’accueil, puis autorisation du système. Un bouton permet d’envoyer un test et les préférences permettent de choisir les événements. [Documentation Apple / WebKit](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/).
+
+Le pointage et sa notification sont enregistrés dans la même transaction Postgres. L’envoi s’exécute après la réponse HTTP. Une erreur réseau conserve la notification pour une nouvelle tentative lors d’une requête authentifiée suivante (six tentatives maximum, bail de deux minutes). Ce mécanisme ne possède pas de tâche planifiée indépendante : sans nouvelle visite après un échec, la tentative attend. Les abonnements expirés sont supprimés ; une correction manuelle ne produit pas une fausse notification d’arrivée. Aucun ancien pointage n’est envoyé à l’activation d’un téléphone. La livraison dépend aussi du réseau, des autorisations et des modes de concentration du téléphone.
 
 ## Démarrer en local
 

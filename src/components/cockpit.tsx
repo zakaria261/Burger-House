@@ -35,6 +35,7 @@ import {
   CreditCard,
   Banknote,
   Trash2,
+  Pencil,
 } from 'lucide-react';
 import {
   Action,
@@ -53,8 +54,9 @@ import {
   totals,
 } from '@/lib/model';
 import { Avatar, CategoryIcon, Empty, Modal, SegmentedControl } from './ui';
-import { ClockForm, EmployeeForm, EntryForm, NoteForm } from './forms';
+import { ClockForm, EmployeeForm, EntryForm, NoteForm, ShiftForm } from './forms';
 import { AppleMark, Symbol } from './symbols';
+import NotificationSettings from './notification-settings';
 import RevenueChart from './revenue-chart';
 import { haptic, useAppearance, useNativeViewport } from '@/lib/native';
 import SignIn from './sign-in';
@@ -65,6 +67,7 @@ type Dialog =
   | { type: 'details'; id: string }
   | { type: 'clock'; id: string; event: 'in' | 'pause' | 'resume' | 'out' }
   | { type: 'employee' }
+  | { type: 'shift'; id?: string }
   | { type: 'note' }
   | { type: 'install' }
   | { type: 'audit' }
@@ -638,15 +641,25 @@ export default function Cockpit() {
                 </>
               )}
               {tab === 'team' && (
-                <button
-                  className="button button-primary"
-                  aria-label="Ajouter un salarié"
-                  disabled={!state || unavailable}
-                  onClick={() => open({ type: 'employee' })}
-                >
-                  <Plus size={18} />
-                  Ajouter un salarié
-                </button>
+                <>
+                  <button
+                    className="button button-secondary"
+                    disabled={!state?.employees.some((e) => e.active) || unavailable}
+                    onClick={() => open({ type: 'shift' })}
+                  >
+                    <Pencil size={17} />
+                    Ajouter un pointage
+                  </button>
+                  <button
+                    className="button button-primary"
+                    aria-label="Ajouter un salarié"
+                    disabled={!state || unavailable}
+                    onClick={() => open({ type: 'employee' })}
+                  >
+                    <Plus size={18} />
+                    Ajouter un salarié
+                  </button>
+                </>
               )}
               {tab === 'notebook' && (
                 <button
@@ -741,13 +754,13 @@ export default function Cockpit() {
                     <>
                       <div className="overview-grid">
                         <div className="overview-primary">
-                          <section className="revenue-hero">
+                          <section className={`revenue-hero ${balance < 0 ? 'hero-negative' : ''}`}>
                             <div className="hero-copy">
                               <div className="hero-kicker">
                                 <span className="mini-icon">
                                   <ArrowDownLeft size={18} />
                                 </span>
-                                Recettes encaissées
+                                Gain net
                                 <span className="period-tag">
                                   {period === 'day'
                                     ? 'Jour'
@@ -757,10 +770,10 @@ export default function Cockpit() {
                                 </span>
                               </div>
                               <div className="hero-amount">
-                                {money(total.income).split(',')[0]}
-                                <span>,{money(total.income).split(',')[1]}</span>
+                                {money(balance).split(',')[0]}
+                                <span>,{money(balance).split(',')[1]}</span>
                               </div>
-                              <p>Montant total TTC</p>
+                              <p>Recettes − dépenses enregistrées</p>
                               <button
                                 onClick={() => open({ type: 'entry', kind: 'income' })}
                                 disabled={unavailable}
@@ -774,7 +787,7 @@ export default function Cockpit() {
                             <div className="hero-footer">
                               <span>
                                 <span className="status-dot" />
-                                {offline ? 'Dernière sauvegarde' : 'Recettes enregistrées'}
+                                {offline ? 'Dernière sauvegarde' : 'Recettes et dépenses réelles'}
                               </span>
                               <span>
                                 {selectedLabel}
@@ -791,11 +804,11 @@ export default function Cockpit() {
                               className="expense"
                             />
                             <Metric
-                              label="Solde"
-                              value={money(balance)}
+                              label="Recettes"
+                              value={money(total.income)}
                               icon={<Wallet size={17} />}
-                              caption="Recettes − dépenses saisies"
-                              className={balance >= 0 ? 'balance' : 'negative'}
+                              caption="Total encaissé TTC"
+                              className="balance"
                             />
                             <Metric
                               label="Temps travaillé"
@@ -1024,7 +1037,7 @@ export default function Cockpit() {
                       </section>
                       <p className="footnote">
                         * Coût salarial indicatif, calculé sur les heures pointées et les taux
-                        renseignés. Il n’est pas déduit une seconde fois du solde.
+                        renseignés. Il n’est pas déduit une seconde fois du gain net.
                       </p>
                     </>
                   )}
@@ -1040,7 +1053,7 @@ export default function Cockpit() {
                           <strong>{money(total.expense)}</strong>
                         </div>
                         <div>
-                          <span>Solde d’exploitation</span>
+                          <span>Gain net</span>
                           <strong>{money(balance)}</strong>
                         </div>
                         <button
@@ -1135,8 +1148,8 @@ export default function Cockpit() {
                         </div>
                       </section>
                       <p className="footnote">
-                        Le solde correspond aux recettes moins les dépenses saisies. Ce registre de
-                        gestion ne remplace pas votre comptabilité.
+                        Le gain net correspond aux recettes moins les dépenses saisies. Ce registre
+                        de gestion ne remplace pas votre comptabilité.
                       </p>
                     </>
                   )}
@@ -1281,7 +1294,7 @@ export default function Cockpit() {
                       <section className="panel shift-history">
                         <PanelHeader
                           title="Historique des pointages"
-                          subtitle="Les pointages de la période sélectionnée."
+                          subtitle="Un oubli ? Corrigez les horaires avec le crayon."
                           action={<span className="soft-label">Europe / Paris</span>}
                         />
                         {state.shifts.filter((s) =>
@@ -1294,6 +1307,7 @@ export default function Cockpit() {
                               <span>ARRIVÉE / DÉPART</span>
                               <span>PAUSES</span>
                               <span>TEMPS NET</span>
+                              <span className="sr-only">Correction</span>
                             </div>
                             {state.shifts
                               .filter((s) => inPeriod(today(new Date(s.startedAt)), date, period))
@@ -1327,6 +1341,15 @@ export default function Cockpit() {
                                       min
                                     </span>
                                     <strong>{duration(shiftMs(s, now))}</strong>
+                                    <button
+                                      className="icon-button shift-edit"
+                                      aria-label={`Corriger le pointage de ${e?.name}`}
+                                      disabled={unavailable}
+                                      onClick={() => open({ type: 'shift', id: s.id })}
+                                    >
+                                      <Pencil size={16} />
+                                      {!!s.corrections?.length && <i className="correction-dot" />}
+                                    </button>
                                   </div>
                                 );
                               })}
@@ -1446,7 +1469,8 @@ export default function Cockpit() {
                         {snapshot.user && (
                           <div className="setting-row">
                             <span>
-                              Compte responsable<small>{snapshot.user.email}</small>
+                              Connexion conservée sur cet appareil
+                              <small>{snapshot.user.email} · jusqu’à votre déconnexion</small>
                             </span>
                             <button
                               className="button button-secondary"
@@ -1485,6 +1509,7 @@ export default function Cockpit() {
                           </button>
                         </div>
                       </section>
+                      <NotificationSettings />
                       <section className="panel settings-panel appearance-panel">
                         <PanelHeader
                           title="Apparence"
@@ -1697,6 +1722,20 @@ export default function Cockpit() {
             label="Type de mouvement"
           />
           <EntryForm key={dialog.kind} type={dialog.kind} {...props} />
+        </Modal>
+      )}
+      {dialog?.type === 'shift' && state && (
+        <Modal
+          title={dialog.id ? 'Corriger le pointage' : 'Ajouter un pointage oublié'}
+          subtitle="Horaires réels · heure de Paris · historique conservé."
+          onClose={close}
+          closing={sheetClosing}
+        >
+          <ShiftForm
+            employees={state.employees}
+            shift={state.shifts.find((s) => s.id === dialog.id)}
+            {...props}
+          />
         </Modal>
       )}
       {dialog?.type === 'employee' && (

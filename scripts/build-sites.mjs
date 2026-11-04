@@ -51,7 +51,7 @@ try {
     .toString()
     .replace('burger-house-shell-v3', 'burger-house-shell-' + fingerprint)
     .replace(
-      "c.addAll(['/','/icons/icon-192.png','/logo-burger-house.jpg'])",
+      /c\.addAll\(\[\s*'\/',\s*'\/icons\/icon-192\.png',\s*'\/logo-burger-house\.jpg'\s*\]\)/,
       `c.addAll(${JSON.stringify(precache)})`,
     );
   assets['/sw.js'] = Buffer.from(sw).toString('base64');

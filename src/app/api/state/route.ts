@@ -1,31 +1,37 @@
 import { handleState } from '@/lib/api';
-import { authServer, authorizedEmail } from '@/lib/auth/server';
+import { authenticate } from '@/lib/auth/principal';
+import { after } from 'next/server';
+import { dispatchPush } from '@/lib/push';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 async function handle(request: Request) {
   try {
     if (process.env.DATABASE_URL) {
-      const { data: session } = await authServer().getSession();
-      if (!session?.user)
+      const principal = await authenticate(request);
+      if (!principal)
         return Response.json(
           { code: 'SIGN_IN_REQUIRED', error: 'Connectez-vous pour accéder au restaurant.' },
           { status: 401, headers: { 'Cache-Control': 'no-store' } },
         );
-      if (!authorizedEmail(session.user.email) || !session.user.emailVerified)
-        return Response.json(
-          { code: 'ACCESS_DENIED', error: 'Ce compte n’a pas accès au restaurant.' },
-          { status: 403, headers: { 'Cache-Control': 'no-store' } },
-        );
       const { postgresStore } = await import('@/lib/postgres');
-      const response = await handleState(request, postgresStore());
+      const response = await handleState(request, postgresStore(), principal.user.email);
+      after(async () => {
+        try {
+          await dispatchPush();
+        } catch {
+          console.error('Push: livraison différée.');
+        }
+      });
       if (response.status === 200) {
         const data = await response.json();
-        return Response.json(
-          { ...data, user: { email: session.user.email, name: session.user.name } },
-          { status: 200, headers: response.headers },
+        return principal.finish(
+          Response.json(
+            { ...data, user: { email: principal.user.email, name: principal.user.name } },
+            { status: 200, headers: response.headers },
+          ),
         );
       }
-      return response;
+      return principal.finish(response);
     }
     if (process.env.VERCEL)
       return Response.json(

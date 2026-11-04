@@ -1,4 +1,4 @@
-import { Action, State, today, PAYMENTS, CATEGORIES } from './model';
+import { Action, State, today, PAYMENTS, CATEGORIES, Shift, ShiftTimes } from './model';
 export class ValidationError extends Error {}
 const check = (ok: unknown, message: string) => {
   if (!ok) throw new ValidationError(message);
@@ -57,6 +57,7 @@ export async function applyAction(
   previous: State,
   action: Action,
   now = new Date(),
+  actor = 'Responsable',
 ): Promise<State> {
   const s = structuredClone(previous);
   const at = now.toISOString();
@@ -179,6 +180,92 @@ export async function applyAction(
         } else throw new ValidationError('Action de pointage invalide.');
       }
       message = `${employee!.name} · ${{ in: 'début du service', pause: 'début de pause', resume: 'reprise du service', out: 'fin du service' }[action.event]}`;
+      break;
+    }
+    case 'shift.correct':
+    case 'shift.add': {
+      const previousShift =
+        action.type === 'shift.correct' ? s.shifts.find((x) => x.id === action.id) : undefined;
+      check(action.type !== 'shift.correct' || previousShift, 'Pointage introuvable.');
+      const employeeId =
+        previousShift?.employeeId ?? (action.type === 'shift.add' ? action.employeeId : '');
+      const employee = s.employees.find((e) => e.id === employeeId);
+      check(employee, 'Salarié introuvable.');
+      const reason = text(action.reason, 500);
+      check(reason.length >= 5, 'Précisez le motif de la correction (5 caractères minimum).');
+      const timestamp = (value: unknown) => {
+        check(
+          typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value),
+          'Horaire invalide.',
+        );
+        const n = Date.parse(value as string);
+        check(
+          Number.isFinite(n) && new Date(n).toISOString() === value && n <= now.getTime(),
+          'Les horaires doivent être dans le passé.',
+        );
+        return n;
+      };
+      const start = timestamp(action.startedAt);
+      const end = action.endedAt ? timestamp(action.endedAt) : now.getTime();
+      check(end > start, 'Le départ doit être après l’arrivée.');
+      check(
+        Number.isFinite(action.pauseMinutes) &&
+          action.pauseMinutes >= 0 &&
+          Number.isSafeInteger(Math.round(action.pauseMinutes * 60000)) &&
+          Math.abs(action.pauseMinutes * 60000 - Math.round(action.pauseMinutes * 60000)) < 0.001,
+        'Durée de pause invalide.',
+      );
+      // For an open, currently paused shift, the field represents completed pauses only.
+      const pauseStartedAt = !action.endedAt ? previousShift?.pauseStartedAt : undefined;
+      check(
+        !pauseStartedAt || Date.parse(pauseStartedAt) >= start,
+        'L’arrivée doit précéder la pause en cours.',
+      );
+      check(
+        action.pauseMinutes * 60000 + (pauseStartedAt ? end - Date.parse(pauseStartedAt) : 0) <=
+          end - start,
+        'Les pauses dépassent la durée du service.',
+      );
+      check(
+        !s.shifts.some(
+          (x) =>
+            x.id !== previousShift?.id &&
+            x.employeeId === employeeId &&
+            start < (x.endedAt ? Date.parse(x.endedAt) : Infinity) &&
+            (action.endedAt ? end : Infinity) > Date.parse(x.startedAt),
+        ),
+        'Ces horaires chevauchent un autre service du salarié.',
+      );
+      const times = (x: Shift): ShiftTimes => ({
+        startedAt: x.startedAt,
+        endedAt: x.endedAt,
+        pauseStartedAt: x.pauseStartedAt,
+        pauseMs: x.pauseMs,
+      });
+      const after: ShiftTimes = {
+        startedAt: new Date(start).toISOString(),
+        endedAt: action.endedAt ? new Date(end).toISOString() : undefined,
+        pauseStartedAt,
+        pauseMs: Math.round(action.pauseMinutes * 60000),
+      };
+      const correction = {
+        at,
+        actor,
+        reason,
+        before: previousShift ? times(previousShift) : null,
+        after,
+      };
+      if (previousShift) {
+        Object.assign(previousShift, after);
+        previousShift.corrections = [...(previousShift.corrections ?? []), correction];
+      } else
+        s.shifts.unshift({
+          id: crypto.randomUUID(),
+          employeeId,
+          ...after,
+          corrections: [correction],
+        });
+      message = `${employee!.name} · pointage ${previousShift ? 'corrigé' : 'ajouté'} par ${actor} : ${reason}`;
       break;
     }
     case 'note.add':
