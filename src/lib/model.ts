@@ -1,13 +1,18 @@
 export type Mode = 'live';
 export type Period = 'day' | 'month' | 'year';
 export type Tab = 'overview' | 'ledger' | 'team' | 'notebook' | 'settings';
+export const INCOME_CATEGORIES = ['CB', 'Mypos', 'Espèces', 'Uber'] as const;
+export const LEGACY_INCOME_CATEGORIES = ['Sur place', 'À emporter', 'Livraison'] as const;
 export const CATEGORIES = [
-  'Ingrédients',
   'Salaires',
+  'Ingrédients',
   'Emballages',
   'Loyer & charges',
   'Énergie',
   'Équipement',
+  'Gfd',
+  'Gqsoil',
+  'Carrefour',
   'Autres',
 ] as const;
 export const PAYMENTS = ['Carte bancaire', 'Espèces', 'Plateforme', 'Virement'] as const;

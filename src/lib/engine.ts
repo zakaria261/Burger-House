@@ -1,4 +1,13 @@
-import { Action, State, today, PAYMENTS, CATEGORIES, Shift, ShiftTimes } from './model';
+import {
+  Action,
+  State,
+  today,
+  PAYMENTS,
+  CATEGORIES,
+  INCOME_CATEGORIES,
+  Shift,
+  ShiftTimes,
+} from './model';
 export class ValidationError extends Error {}
 const check = (ok: unknown, message: string) => {
   if (!ok) throw new ValidationError(message);
@@ -75,16 +84,22 @@ export async function applyAction(
           e.date <= today(now),
         'Choisissez une date valide, aujourd’hui ou dans le passé.',
       );
-      check(
-        PAYMENTS.includes(e.payment as (typeof PAYMENTS)[number]),
-        'Mode de paiement invalide.',
-      );
-      check(
-        e.type === 'income'
-          ? ['Sur place', 'À emporter', 'Livraison'].includes(e.category)
-          : CATEGORIES.includes(e.category as (typeof CATEGORIES)[number]),
-        'Catégorie invalide.',
-      );
+      if (e.type === 'income') {
+        check(
+          INCOME_CATEGORIES.includes(e.category as (typeof INCOME_CATEGORIES)[number]),
+          'Choisissez CB, Mypos, Espèces ou Uber pour cette recette.',
+        );
+        check(e.payment === e.category, 'Le canal de recette et le paiement doivent correspondre.');
+      } else {
+        check(
+          PAYMENTS.includes(e.payment as (typeof PAYMENTS)[number]),
+          'Mode de paiement invalide.',
+        );
+        check(
+          CATEGORIES.includes(e.category as (typeof CATEGORIES)[number]),
+          'Catégorie de dépense invalide.',
+        );
+      }
       check(
         typeof e.note === 'string' &&
           e.note.length <= 2000 &&

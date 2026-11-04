@@ -4,6 +4,7 @@ import { Plus, Trash2, LockKeyhole, ArrowRight, Check, ShoppingBasket } from 'lu
 import {
   Action,
   CATEGORIES,
+  INCOME_CATEGORIES,
   Entry,
   Employee,
   Note,
@@ -44,7 +45,7 @@ export function EntryForm({ type, submit, busy, error }: { type: Entry['type'] }
             title: String(f.get('title')),
             amount: lines.length ? total : Math.round(Number(amount.replace(',', '.')) * 100),
             category: String(f.get('category')),
-            payment: String(f.get('payment')),
+            payment: type === 'income' ? String(f.get('category')) : String(f.get('payment')),
             date: String(f.get('date')),
             supplier: String(f.get('supplier') ?? ''),
             note: String(f.get('note') ?? ''),
@@ -79,7 +80,7 @@ export function EntryForm({ type, submit, busy, error }: { type: Entry['type'] }
         <input
           name="title"
           placeholder={
-            type === 'income' ? 'Ex. Service du midi' : 'Ex. Livraison de produits frais'
+            type === 'income' ? 'Ex. Ventes du service du midi' : 'Ex. Livraison de produits frais'
           }
           required
           maxLength={100}
@@ -87,13 +88,11 @@ export function EntryForm({ type, submit, busy, error }: { type: Entry['type'] }
       </label>
       <div className="form-grid">
         <label>
-          Catégorie
+          {type === 'income' ? 'Encaissé par' : 'Catégorie de dépense'}
           <select name="category">
-            {(type === 'expense' ? CATEGORIES : ['Sur place', 'À emporter', 'Livraison']).map(
-              (v) => (
-                <option key={v}>{v}</option>
-              ),
-            )}
+            {(type === 'income' ? INCOME_CATEGORIES : CATEGORIES).map((v) => (
+              <option key={v}>{v}</option>
+            ))}
           </select>
         </label>
         <label>
@@ -102,19 +101,21 @@ export function EntryForm({ type, submit, busy, error }: { type: Entry['type'] }
         </label>
       </div>
       <div className="form-grid">
-        <label>
-          Mode de paiement
-          <select name="payment">
-            {PAYMENTS.map((p) => (
-              <option key={p}>{p}</option>
-            ))}
-          </select>
-        </label>
+        {type === 'expense' && (
+          <label>
+            Mode de paiement
+            <select name="payment">
+              {PAYMENTS.map((p) => (
+                <option key={p}>{p}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <label>
           {type === 'expense' ? 'Fournisseur / salarié' : 'Référence'}
           <input
             name="supplier"
-            placeholder={type === 'expense' ? 'Nom du fournisseur' : 'Facultatif'}
+            placeholder={type === 'expense' ? 'Ex. Gfd, Gqsoil, Carrefour…' : 'Facultatif'}
             maxLength={100}
           />
         </label>

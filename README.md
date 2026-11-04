@@ -6,7 +6,7 @@ Application interne Next.js, React et TypeScript pour Burger House à Saint-Ramb
 
 La version 3 ne contient aucun mode de démonstration et n’injecte ni chiffre d’affaires, ni dépense, ni salarié, ni note. Un restaurant neuf commence avec un registre vide et aucun objectif quotidien. Les écrans se remplissent avec les saisies enregistrées par le responsable. L’app ne lit pas automatiquement une caisse ou un compte bancaire externe.
 
-- Recettes et dépenses détaillées par jour, mois et année, catégories, fournisseurs, quantités et prix unitaires.
+- Recettes classées par canal (CB, Mypos, espèces ou Uber) et dépenses suivies par catégorie, fournisseur ou salarié, avec quantités et prix unitaires. Les nouvelles recettes séparent les quatre canaux sans possibilité de sélectionner un paiement incohérent.
 - Ajout des salariés avec code personnel, début de service, pauses, reprise et départ.
 - Cahier de service, objectif à définir, exports CSV et sauvegarde JSON sans codes de pointage.
 - Annulation d’une écriture sans suppression de sa trace.

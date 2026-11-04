@@ -40,6 +40,9 @@ import {
 import {
   Action,
   Entry,
+  CATEGORIES,
+  INCOME_CATEGORIES,
+  LEGACY_INCOME_CATEGORIES,
   Period,
   Snapshot,
   Tab,
@@ -394,7 +397,7 @@ export default function Cockpit() {
           'Libellé',
           'Catégorie',
           'Montant TTC EUR',
-          'Paiement',
+          'Paiement / canal de recette',
           'Fournisseur ou référence',
           'Note',
           'Statut',
@@ -405,7 +408,7 @@ export default function Cockpit() {
           e.title,
           e.category,
           (e.amount / 100).toFixed(2),
-          e.payment,
+          e.type === 'income' ? '' : e.payment,
           e.supplier,
           e.note,
           e.voidedAt ? 'Annulée' : 'Active',
@@ -1099,25 +1102,16 @@ export default function Cockpit() {
                             onChange={(e) => setFilter(e.target.value)}
                           >
                             <option value="all">Toutes les catégories</option>
-                            {[
-                              'Ingrédients',
-                              'Salaires',
-                              'Emballages',
-                              'Loyer & charges',
-                              'Énergie',
-                              'Équipement',
-                              'Autres',
-                              'Sur place',
-                              'À emporter',
-                              'Livraison',
-                            ].map((c) => (
-                              <option key={c}>{c}</option>
-                            ))}
+                            {[...CATEGORIES, ...INCOME_CATEGORIES, ...LEGACY_INCOME_CATEGORIES].map(
+                              (c) => (
+                                <option key={c}>{c}</option>
+                              ),
+                            )}
                           </select>
                         </div>
                         <div className="table-labels">
                           <span>LIBELLÉ / CATÉGORIE</span>
-                          <span>PAIEMENT</span>
+                          <span>PAIEMENT / CANAL</span>
                           <span>MONTANT TTC</span>
                         </div>
                         {displayed.length ? (
@@ -2021,7 +2015,7 @@ function TransactionRow({
           {e.supplier && detailed && ` · ${e.supplier}`}
         </small>
       </span>
-      {detailed && (
+      {detailed && !(e.type === 'income' && e.payment === e.category) && (
         <span className="payment-label">
           {e.payment === 'Espèces' ? <Banknote size={14} /> : <CreditCard size={14} />} {e.payment}
         </span>
@@ -2101,8 +2095,12 @@ function EntryDetails({
       <dl>
         {[
           ['Date', frenchDate(e.date)],
-          ['Catégorie', e.category],
-          ['Paiement', e.payment],
+          ...(e.type === 'income'
+            ? [['Encaissé par', e.category]]
+            : [
+                ['Catégorie', e.category],
+                ['Paiement', e.payment],
+              ]),
           ['Fournisseur / référence', e.supplier || 'Non renseigné'],
         ].map(([k, v]) => (
           <div key={k}>
