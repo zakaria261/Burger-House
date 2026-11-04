@@ -1,0 +1,7 @@
+node_modules
+.next
+out
+dist
+.data
+worker/assets.generated.json
+package-lock.json

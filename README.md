@@ -1,6 +1,6 @@
 # Burger House · Le cockpit
 
-Application de gestion interne de **Burger House, Saint-Rambert-d’Albon**, réalisée en Next.js 16, React 19 et TypeScript. Le logo officiel, le noir et le vert de l’enseigne sont intégrés à une interface adaptative, avec navigation tactile sur mobile.
+Application de gestion interne de **Burger House, Saint-Rambert-d’Albon**, réalisée en Next.js 16, React 19 et TypeScript. Le logo officiel, le noir et le vert de l’enseigne sont intégrés à une interface adaptative, avec navigation tactile sur mobile. La version 2 utilise la typographie système Apple sur iPhone et Mac, une barre d’onglets translucide et les conventions des interfaces iOS.
 
 ## Démarrer sur le Mac
 
@@ -77,4 +77,18 @@ Les tests vérifient les pauses, les doubles arrivées, les montants, les annula
 
 Le rendu visuel sur un iPhone physique et l’installation depuis Safari restent à vérifier sur l’appareil final. Aucun navigateur de test n’était connecté à la session de réalisation.
 
-Logo : [site officiel Burger House](https://bhouse26.fr/template/576_logo.jpg). Polices DM Sans et Manrope hébergées dans le projet, licences OFL incluses.
+## Interface iPhone · version 2
+
+- Police système `-apple-system` : San Francisco sur iPhone et Mac, sans téléchargement ni redistribution de fichiers de police Apple.
+- Grand titre qui laisse place à une barre de navigation compacte pendant le défilement.
+- Navigation à cinq onglets : Résumé, Activité, Équipe, Notes et Réglages. Actions de création séparées de la navigation.
+- Apparence claire, sombre ou automatique, conservée sur l’appareil ; couleurs et sélecteurs natifs suivent le thème.
+- Feuilles modales avec transition d’ouverture et de fermeture, glissement vers le bas pour fermer sur mobile, focus piégé et touche Échap sur clavier.
+- Graphique interactif au toucher, à la souris et au clavier. Les valeurs de la période sont issues des écritures sauvegardées.
+- Zones de sécurité iPhone, champs de 16 px pour éviter le zoom automatique, barre d’onglets masquée à l’ouverture du clavier.
+- Les préférences de réduction des animations et de transparence sont respectées. Les retours vibratoires utilisent uniquement l’API disponible sur l’appareil ; ils ne sont pas garantis sur Safari iOS.
+- Les symboles d’interface SVG sont des dessins originaux cohérents avec les conventions iOS. Aucun fichier SF Symbols n’est embarqué. La marque Apple est utilisée dans les instructions d’installation pour identifier l’iPhone et l’iPad ; Burger House conserve sa propre identité.
+
+Le dépôt GitHub contient le code, les tests, les migrations et les ressources publiques. Les bases `.data/`, les exports et les secrets restent exclus. Le workflow GitHub Actions vérifie les tests métier, TypeScript, la compilation Next.js et l’artefact Worker.
+
+Logo : [site officiel Burger House](https://bhouse26.fr/template/576_logo.jpg). Références de conception : [typographie Apple](https://developer.apple.com/design/human-interface-guidelines/typography), [navigation par onglets](https://developer.apple.com/design/human-interface-guidelines/tab-bars) et [matériaux](https://developer.apple.com/design/human-interface-guidelines/materials).
