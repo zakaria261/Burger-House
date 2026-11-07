@@ -187,9 +187,12 @@ export async function applyAction(
     case 'entry.add': {
       const e = action.entry;
       check(e && ['income', 'expense'].includes(e.type), 'Type d’écriture invalide.');
-      // A revenue is identified by its channel: the label is optional.
-      if (e.type === 'income' && (typeof e.title !== 'string' || !e.title.trim()))
-        e.title = String(e.category);
+      // The label is optional: a revenue is named by its channel, an expense by supplier or category.
+      if (typeof e.title !== 'string' || !e.title.trim())
+        e.title =
+          e.type === 'expense' && typeof e.supplier === 'string' && e.supplier.trim()
+            ? e.supplier.trim()
+            : String(e.category);
       text(e.title, 100);
       cents(e.amount);
       check(

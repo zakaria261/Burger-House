@@ -7745,3 +7745,72 @@ html {
     font-size: 14px;
   }
 }
+
+/* Expenses: one tap on a category instead of a label. */
+.expense-form {
+  gap: 18px;
+}
+.expense-categories {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+.expense-categories > button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 72px;
+  padding: 10px 4px;
+  border-radius: 15px;
+  background: var(--surface-secondary);
+  box-shadow: inset 0 0 0 0.5px var(--separator);
+  color: var(--secondary);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.2;
+  transition:
+    background 0.2s,
+    transform 0.18s var(--spring);
+}
+.expense-categories > button span {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.expense-categories > button:active {
+  transform: scale(0.95);
+}
+.expense-categories > button.active {
+  background: #ff9f0a1a;
+  color: var(--orange);
+  box-shadow: inset 0 0 0 1.5px var(--orange);
+}
+.expense-more-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 14px;
+}
+.expense-more-body > label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--secondary);
+}
+.settings-button.is-active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+@media (max-width: 760px), (max-width: 960px) and (hover: none) and (pointer: coarse) {
+  .expense-categories {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .expense-categories > button {
+    min-height: 70px;
+    font-size: 13px;
+  }
+}

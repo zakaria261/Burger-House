@@ -444,3 +444,28 @@ test('une commande passée se contrôle à la livraison et signale les manquants
   s = await applyAction(s, { type: 'stock.order.cancel', id: s.orders[0].id }, at);
   assert.equal(s.orders[0].status, 'cancelled');
 });
+
+test('une dépense s’enregistre sans libellé, nommée par fournisseur ou catégorie', async () => {
+  let s = await initialState();
+  const base = {
+    type: 'expense' as const,
+    title: '',
+    amount: 4500,
+    payment: 'Carte bancaire',
+    date: '2026-11-07',
+    note: '',
+    items: [],
+  };
+  s = await applyAction(
+    s,
+    { type: 'entry.add', entry: { ...base, category: 'Gasoil', supplier: '' } },
+    at,
+  );
+  assert.equal(s.entries[0].title, 'Gasoil');
+  s = await applyAction(
+    s,
+    { type: 'entry.add', entry: { ...base, category: 'Salaires', supplier: ' Sarah ' } },
+    at,
+  );
+  assert.equal(s.entries[0].title, 'Sarah');
+});

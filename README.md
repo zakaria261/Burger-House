@@ -11,6 +11,10 @@ La version 3 ne contient aucun mode de démonstration et n’injecte ni chiffre 
 - Cahier de service, objectif à définir, exports CSV et sauvegarde JSON sans codes de pointage.
 - Annulation d’une écriture sans suppression de sa trace.
 
+## Dépenses sans libellé
+
+Une dépense se saisit avec un montant, une catégorie choisie d’un geste (Gfd, Carrefour, Ingrédients, Emballages, Gasoil, Salaires…), la date et le paiement. Fournisseur, note et détail des achats restent facultatifs, sous « Plus de détails ». L’écriture prend le nom du fournisseur s’il est saisi, sinon celui de la catégorie.
+
 ## Recettes du jour et relevé
 
 Les recettes se saisissent sans libellé : une seule fiche **Recettes du jour** présente les quatre canaux (CB, Mypos, espèces, Uber). Il suffit de remplir les montants encaissés ; chaque canal devient une écriture distincte, et les montants déjà saisis pour la même journée sont rappelés pour éviter les doublons.

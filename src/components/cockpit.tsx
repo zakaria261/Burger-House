@@ -632,11 +632,12 @@ export default function Cockpit() {
               {!!state?.audit.length && <i />}
             </button>
             <button
-              className="profile"
-              aria-label="Réglages du restaurant"
+              className={`icon-button notification-button settings-button ${tab === 'settings' ? 'is-active' : ''}`}
+              aria-label="Réglages"
+              aria-current={tab === 'settings' ? 'page' : undefined}
               onClick={() => selectTab('settings')}
             >
-              <img src="/logo-burger-house.jpg" alt="" />
+              <Symbol name="settings" size={22} />
             </button>
           </div>
         </header>
@@ -2165,7 +2166,7 @@ function TransactionRow({
       <span className="transaction-name">
         <strong>{incomeTitle(e)}</strong>
         <small>
-          {e.category}
+          {e.title === e.category ? (e.type === 'income' ? 'Recette' : e.payment) : e.category}
           <span>·</span>
           {frenchDate(e.date, { day: 'numeric', month: 'short' })}
           {e.supplier && detailed && ` · ${e.supplier}`}

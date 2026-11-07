@@ -15,6 +15,8 @@ import {
   CreditCard,
   Truck,
   MoreHorizontal,
+  Fuel,
+  ShoppingCart,
 } from 'lucide-react';
 import { haptic } from '@/lib/native';
 export function Modal({
@@ -148,8 +150,8 @@ export function CategoryIcon({ category, size = 19 }: { category: string; size?:
         CB: CreditCard,
         Mypos: CreditCard,
         Gfd: ShoppingBasket,
-        Gasoil: ShoppingBasket,
-        Carrefour: ShoppingBasket,
+        Gasoil: Fuel,
+        Carrefour: ShoppingCart,
         Uber: Truck,
         'Sur place': CreditCard,
         'À emporter': Banknote,

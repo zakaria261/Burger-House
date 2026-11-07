@@ -175,185 +175,197 @@ export function IncomeForm({ submit, busy, error, entries }: Props & { entries: 
     </form>
   );
 }
-export function EntryForm({ type, submit, busy, error }: { type: Entry['type'] } & Props) {
+/** Expenses: a category tap, an amount and a date. Supplier, note and lines stay optional. */
+const EXPENSE_ORDER = [
+  'Gfd',
+  'Carrefour',
+  'Ingrédients',
+  'Emballages',
+  'Gasoil',
+  'Salaires',
+  'Loyer & charges',
+  'Énergie',
+  'Équipement',
+  'Autres',
+] as const;
+export function EntryForm({ submit, busy, error }: { type?: Entry['type'] } & Props) {
   const [lines, setLines] = useState<{ name: string; quantity: string; unitPrice: string }[]>([]);
   const [amount, setAmount] = useState('');
+  const [category, setCategory] = useState('');
+  const [localError, setLocalError] = useState('');
+  const categories = [
+    ...EXPENSE_ORDER.filter((c) => (CATEGORIES as readonly string[]).includes(c)),
+    ...CATEGORIES.filter((c) => !(EXPENSE_ORDER as readonly string[]).includes(c)),
+  ];
   const total = lines.reduce(
     (sum, i) =>
-      sum +
-      Math.round(Number(i.quantity) * Math.round(Number(i.unitPrice.replace(',', '.')) * 100)),
+      sum + Math.round(Number(i.quantity.replace(',', '.')) * (parseEuros(i.unitPrice) ?? 0)),
     0,
   );
+  const typed = parseEuros(amount);
   return (
     <form
-      className="form"
+      className="form expense-form"
       onSubmit={async (e) => {
         e.preventDefault();
+        setLocalError('');
+        if (!category) {
+          setLocalError('Choisissez la catégorie de la dépense.');
+          return;
+        }
+        const value = lines.length ? total : typed;
+        if (!value) {
+          setLocalError('Indiquez le montant. Exemple : 125,50');
+          return;
+        }
         const f = new FormData(e.currentTarget);
         await submit({
           type: 'entry.add',
           entry: {
-            type,
-            title: String(f.get('title')),
-            amount: lines.length ? total : Math.round(Number(amount.replace(',', '.')) * 100),
-            category: String(f.get('category')),
-            payment: type === 'income' ? String(f.get('category')) : String(f.get('payment')),
+            type: 'expense',
+            title: '',
+            amount: value,
+            category,
+            payment: String(f.get('payment')),
             date: String(f.get('date')),
             supplier: String(f.get('supplier') ?? ''),
             note: String(f.get('note') ?? ''),
             items: lines.map((l) => ({
               name: l.name,
-              quantity: Number(l.quantity),
-              unitPrice: Math.round(Number(l.unitPrice.replace(',', '.')) * 100),
+              quantity: Number(l.quantity.replace(',', '.')),
+              unitPrice: parseEuros(l.unitPrice) ?? 0,
             })),
           },
         });
       }}
     >
-      <div className={`amount-input ${type === 'income' ? 'positive' : ''}`}>
-        <span>{type === 'income' ? 'Montant encaissé' : 'Montant de la dépense'}</span>
+      <div className="amount-input">
+        <span>Montant de la dépense</span>
         <div>
           <input
             aria-label="Montant en euros"
             inputMode="decimal"
             placeholder="0,00"
-            value={lines.length ? (total / 100).toFixed(2) : amount}
+            value={lines.length ? (total / 100).toFixed(2).replace('.', ',') : amount}
             readOnly={!!lines.length}
             onChange={(e) => setAmount(e.target.value)}
-            required={!lines.length}
-            pattern="[0-9]+([.,][0-9]{1,2})?"
           />
           <b>€</b>
         </div>
         <small>Montant total TTC · en euros</small>
       </div>
-      <label>
-        Libellé
-        <input
-          name="title"
-          placeholder={
-            type === 'income' ? 'Ex. Ventes du service du midi' : 'Ex. Livraison de produits frais'
-          }
-          required
-          maxLength={100}
-        />
-      </label>
+      <div className="expense-categories" role="group" aria-label="Catégorie de dépense">
+        {categories.map((c) => (
+          <button
+            type="button"
+            key={c}
+            aria-pressed={category === c}
+            className={category === c ? 'active' : ''}
+            onClick={() => setCategory(c)}
+          >
+            <CategoryIcon category={c} size={19} />
+            <span>{c}</span>
+          </button>
+        ))}
+      </div>
       <div className="form-grid">
-        <label>
-          {type === 'income' ? 'Encaissé par' : 'Catégorie de dépense'}
-          <select name="category">
-            {(type === 'income' ? INCOME_CATEGORIES : CATEGORIES).map((v) => (
-              <option key={v}>{v}</option>
-            ))}
-          </select>
-        </label>
         <label>
           Date
           <input name="date" type="date" defaultValue={today()} max={today()} required />
         </label>
-      </div>
-      <div className="form-grid">
-        {type === 'expense' && (
-          <label>
-            Mode de paiement
-            <select name="payment">
-              {PAYMENTS.map((p) => (
-                <option key={p}>{p}</option>
-              ))}
-            </select>
-          </label>
-        )}
         <label>
-          {type === 'expense' ? 'Fournisseur / salarié' : 'Référence'}
-          <input
-            name="supplier"
-            placeholder={type === 'expense' ? 'Ex. Gfd, Gasoil, Carrefour…' : 'Facultatif'}
-            maxLength={100}
-          />
+          Paiement
+          <select name="payment">
+            {PAYMENTS.map((p) => (
+              <option key={p}>{p}</option>
+            ))}
+          </select>
         </label>
       </div>
-      {type === 'expense' && (
-        <div className="line-items">
-          <div className="form-section-title">
-            <span>
-              <ShoppingBasket size={16} /> Détail des achats
-            </span>
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => setLines([...lines, { name: '', quantity: '1', unitPrice: '' }])}
-            >
-              <Plus size={15} /> Une ligne
-            </button>
-          </div>
-          {lines.map((l, i) => (
-            <div className="line-item" key={i}>
-              <input
-                aria-label={`Article ${i + 1}`}
-                placeholder="Article / ingrédient"
-                required
-                value={l.name}
-                maxLength={100}
-                onChange={(e) =>
-                  setLines(lines.map((v, j) => (j === i ? { ...v, name: e.target.value } : v)))
-                }
-              />
-              <input
-                aria-label={`Quantité ${i + 1}`}
-                type="number"
-                min="0.001"
-                step="0.001"
-                required
-                value={l.quantity}
-                onChange={(e) =>
-                  setLines(lines.map((v, j) => (j === i ? { ...v, quantity: e.target.value } : v)))
-                }
-              />
-              <input
-                aria-label={`Prix unitaire ${i + 1}`}
-                placeholder="€/unité"
-                inputMode="decimal"
-                pattern="[0-9]+([.,][0-9]{1,2})?"
-                required
-                value={l.unitPrice}
-                onChange={(e) =>
-                  setLines(lines.map((v, j) => (j === i ? { ...v, unitPrice: e.target.value } : v)))
-                }
-              />
+      <details className="income-note expense-more" open={!!lines.length || undefined}>
+        <summary>Plus de détails (facultatif)</summary>
+        <div className="expense-more-body">
+          <label>
+            Fournisseur / salarié
+            <input
+              name="supplier"
+              placeholder="Ex. Gfd, station, nom du salarié…"
+              maxLength={100}
+            />
+          </label>
+          <label>
+            Note / référence du justificatif
+            <textarea name="note" placeholder="Ex. facture n° 1234" maxLength={2000} rows={2} />
+          </label>
+          <div className="line-items">
+            <div className="form-section-title">
+              <span>
+                <ShoppingBasket size={16} /> Détail des achats
+              </span>
               <button
                 type="button"
-                className="icon-button"
-                aria-label={`Supprimer l’article ${i + 1}`}
-                onClick={() => setLines(lines.filter((_, j) => j !== i))}
+                className="text-button"
+                onClick={() => setLines([...lines, { name: '', quantity: '1', unitPrice: '' }])}
               >
-                <Trash2 size={16} />
+                <Plus size={15} /> Une ligne
               </button>
             </div>
-          ))}
-          {!lines.length && (
-            <p className="field-help">
-              Ajoutez les ingrédients, quantités et prix unitaires pour garder une trace précise.
-            </p>
-          )}
-          {!!lines.length && (
-            <p className="line-total">
-              Total des articles <strong>{money(total || 0)}</strong>
-            </p>
-          )}
+            {lines.map((l, i) => (
+              <div className="line-item" key={i}>
+                <input
+                  aria-label={`Article ${i + 1}`}
+                  placeholder="Article"
+                  required
+                  value={l.name}
+                  maxLength={100}
+                  onChange={(e) =>
+                    setLines(lines.map((v, j) => (j === i ? { ...v, name: e.target.value } : v)))
+                  }
+                />
+                <input
+                  aria-label={`Quantité ${i + 1}`}
+                  inputMode="decimal"
+                  required
+                  value={l.quantity}
+                  onChange={(e) =>
+                    setLines(
+                      lines.map((v, j) => (j === i ? { ...v, quantity: e.target.value } : v)),
+                    )
+                  }
+                />
+                <input
+                  aria-label={`Prix unitaire ${i + 1}`}
+                  placeholder="€/unité"
+                  inputMode="decimal"
+                  required
+                  value={l.unitPrice}
+                  onChange={(e) =>
+                    setLines(
+                      lines.map((v, j) => (j === i ? { ...v, unitPrice: e.target.value } : v)),
+                    )
+                  }
+                />
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={`Supprimer l’article ${i + 1}`}
+                  onClick={() => setLines(lines.filter((_, j) => j !== i))}
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+            {!!lines.length && (
+              <p className="line-total">
+                Total des articles <strong>{money(total || 0)}</strong>
+              </p>
+            )}
+          </div>
         </div>
-      )}
-      <label>
-        Note / référence du justificatif
-        <textarea
-          name="note"
-          placeholder="Une précision utile pour retrouver cette écriture…"
-          maxLength={2000}
-          rows={2}
-        />
-      </label>
-      <ErrorMessage message={error} />
+      </details>
+      <ErrorMessage message={localError || error} />
       <button className="button button-primary full" disabled={busy} type="submit">
-        {busy ? 'Enregistrement…' : `Enregistrer la ${type === 'income' ? 'recette' : 'dépense'}`}
+        {busy ? 'Enregistrement…' : 'Enregistrer la dépense'}
         <Check size={18} />
       </button>
       <p className="field-help centered">
