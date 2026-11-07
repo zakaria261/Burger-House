@@ -1,6 +1,15 @@
 'use client';
-import { useState } from 'react';
-import { Plus, Trash2, LockKeyhole, ArrowRight, Check, ShoppingBasket } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import {
+  Plus,
+  Trash2,
+  LockKeyhole,
+  ArrowRight,
+  Check,
+  ShoppingBasket,
+  CalendarDays,
+  ChevronDown,
+} from 'lucide-react';
 import {
   Action,
   CATEGORIES,
@@ -14,7 +23,7 @@ import {
   today,
 } from '@/lib/model';
 import { parisInput, parisCandidates, parisToISO } from '@/lib/paris-time';
-import { Avatar } from './ui';
+import { Avatar, CategoryIcon } from './ui';
 type Props = { submit: (action: Action) => Promise<boolean>; busy: boolean; error: string };
 function ErrorMessage({ message }: { message: string }) {
   return message ? (
@@ -22,6 +31,149 @@ function ErrorMessage({ message }: { message: string }) {
       {message}
     </p>
   ) : null;
+}
+/** Parses a French amount ("12,5", "1 234,56") into cents, or null when invalid. */
+export function parseEuros(value: string) {
+  const v = value.replace(/[\s\u00a0\u202f€]/g, '').replace(',', '.');
+  if (!v) return 0;
+  if (!/^\d+(\.\d{0,2})?$/.test(v)) return null;
+  return Math.round(Number(v) * 100);
+}
+const CHANNEL_HINT: Record<string, string> = {
+  CB: 'Terminal carte bancaire',
+  Mypos: 'Terminal Mypos',
+  Espèces: 'Caisse en espèces',
+  Uber: 'Uber Eats',
+};
+export function IncomeForm({ submit, busy, error, entries }: Props & { entries: Entry[] }) {
+  const [date, setDate] = useState(today());
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [localError, setLocalError] = useState('');
+  const refs = useRef<(HTMLInputElement | null)[]>([]);
+  const parsed = INCOME_CATEGORIES.map((c) => parseEuros(values[c] ?? ''));
+  const total = parsed.reduce<number>((a, v) => a + (v ?? 0), 0);
+  const existing = useMemo(() => {
+    const r: Record<string, number> = {};
+    for (const e of entries)
+      if (e.type === 'income' && !e.voidedAt && e.date === date)
+        r[e.category] = (r[e.category] ?? 0) + e.amount;
+    return r;
+  }, [entries, date]);
+  const existingTotal = Object.values(existing).reduce((a, v) => a + v, 0);
+  const label =
+    date === today()
+      ? 'Aujourd’hui'
+      : new Intl.DateTimeFormat('fr-FR', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+          timeZone: 'Europe/Paris',
+        }).format(new Date(date + 'T12:00:00Z'));
+  return (
+    <form
+      className="form income-form"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setLocalError('');
+        if (parsed.some((v) => v === null)) {
+          setLocalError('Un montant est mal saisi. Exemple : 125,50');
+          return;
+        }
+        if (!total) {
+          setLocalError('Saisissez au moins un montant.');
+          return;
+        }
+        const amounts: Partial<Record<(typeof INCOME_CATEGORIES)[number], number>> = {};
+        INCOME_CATEGORIES.forEach((c, i) => {
+          if (parsed[i]) amounts[c] = parsed[i]!;
+        });
+        await submit({
+          type: 'income.day',
+          date,
+          amounts,
+          note: String(new FormData(e.currentTarget).get('note') ?? ''),
+        });
+      }}
+    >
+      <label className="income-date">
+        <CalendarDays size={18} />
+        <span>
+          <small>Journée encaissée</small>
+          {label}
+        </span>
+        <ChevronDown size={16} />
+        <input
+          type="date"
+          aria-label="Date des recettes"
+          value={date}
+          max={today()}
+          onChange={(e) => e.target.value && setDate(e.target.value)}
+          required
+        />
+      </label>
+      <div className="channel-inputs">
+        {INCOME_CATEGORIES.map((c, i) => (
+          <label
+            key={c}
+            className={`channel-input channel-${i} ${parsed[i] ? 'has-value' : ''} ${parsed[i] === null ? 'is-invalid' : ''}`}
+          >
+            <span className="channel-icon">
+              <CategoryIcon category={c} size={20} />
+            </span>
+            <span className="channel-name">
+              {c}
+              <small>{existing[c] ? `Déjà saisi : ${money(existing[c])}` : CHANNEL_HINT[c]}</small>
+            </span>
+            <span className="channel-amount">
+              <input
+                ref={(el) => {
+                  refs.current[i] = el;
+                }}
+                aria-label={`Montant ${c} en euros`}
+                inputMode="decimal"
+                enterKeyHint={i < INCOME_CATEGORIES.length - 1 ? 'next' : 'done'}
+                placeholder="0,00"
+                autoComplete="off"
+                value={values[c] ?? ''}
+                onChange={(e) => setValues({ ...values, [c]: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && i < INCOME_CATEGORIES.length - 1) {
+                    e.preventDefault();
+                    refs.current[i + 1]?.focus();
+                  }
+                }}
+              />
+              <b>€</b>
+            </span>
+          </label>
+        ))}
+      </div>
+      <div className="income-total">
+        <span>
+          Total à enregistrer
+          {!!existingTotal && <small>Journée après saisie : {money(existingTotal + total)}</small>}
+        </span>
+        <strong>{money(total)}</strong>
+      </div>
+      <details className="income-note">
+        <summary>Ajouter une note (facultatif)</summary>
+        <textarea
+          name="note"
+          placeholder="Ex. Fermeture anticipée, fond de caisse…"
+          maxLength={2000}
+          rows={2}
+        />
+      </details>
+      <ErrorMessage message={localError || error} />
+      <button className="button button-primary full" disabled={busy || !total} type="submit">
+        {busy ? 'Enregistrement…' : 'Enregistrer les recettes'}
+        <Check size={18} />
+      </button>
+      <p className="field-help centered">
+        Remplissez uniquement les canaux encaissés. Chaque canal est enregistré séparément.
+      </p>
+    </form>
+  );
 }
 export function EntryForm({ type, submit, busy, error }: { type: Entry['type'] } & Props) {
   const [lines, setLines] = useState<{ name: string; quantity: string; unitPrice: string }[]>([]);

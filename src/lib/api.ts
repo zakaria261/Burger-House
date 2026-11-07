@@ -53,7 +53,7 @@ export async function handleState(request: Request, store: Store, actor?: string
     if (!request.headers.get('content-type')?.includes('application/json'))
       return reply({ error: 'Format JSON requis.' }, 415);
     const raw = await request.text();
-    if (raw.length > 40000) return reply({ error: 'Envoi trop volumineux.' }, 413);
+    if (raw.length > 120000) return reply({ error: 'Envoi trop volumineux.' }, 413);
     const body = JSON.parse(raw) as { action: Action; requestId: string; revision: number };
     if (
       !body.action ||

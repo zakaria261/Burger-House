@@ -11,6 +11,26 @@ La version 3 ne contient aucun mode de démonstration et n’injecte ni chiffre 
 - Cahier de service, objectif à définir, exports CSV et sauvegarde JSON sans codes de pointage.
 - Annulation d’une écriture sans suppression de sa trace.
 
+## Recettes du jour et relevé
+
+Les recettes se saisissent sans libellé : une seule fiche **Recettes du jour** présente les quatre canaux (CB, Mypos, espèces, Uber). Il suffit de remplir les montants encaissés ; chaque canal devient une écriture distincte, et les montants déjà saisis pour la même journée sont rappelés pour éviter les doublons.
+
+**Activité → Relevé des recettes** affiche, selon la période choisie, la journée canal par canal, chaque jour du mois (jour 1, jour 2…) ou chaque mois de l’année, avec les totaux, la part de chaque canal et la moyenne. Le relevé s’exporte en CSV (virgule décimale, lisible directement dans Excel) ou en version imprimable (enregistrer en PDF depuis le partage iOS). Sur iPhone, les exports passent par la feuille de partage.
+
+## Inventaire
+
+L’onglet **Stock** gère l’inventaire du restaurant :
+
+- **Catalogue burger** : une liste de départ (viandes, pains, fromages, légumes, sauces, frites, boissons, emballages, hygiène) que le responsable coche ; rien n’est ajouté sans sa sélection.
+- **Articles** : unité de comptage, zone de stockage, fournisseur, seuil d’alerte, stock idéal, prix d’achat et DLC la plus proche.
+- **Comptage** zone par zone avec boutons + / −, validation en un geste quand la quantité est identique au théorique, mode à l’aveugle et brouillon conservé sur le téléphone. Seuls les écarts créent un mouvement.
+- **Réception de livraison** : les quantités entrent en stock, les prix d’achat sont mis à jour et la dépense correspondante peut être créée automatiquement dans le registre.
+- **Pertes** avec motif (périmé, abîmé, erreur, repas du personnel, offert) et valeur perdue du mois.
+- **Liste de commande** calculée pour revenir au stock idéal, regroupée par fournisseur, modifiable et envoyable par SMS / WhatsApp, puis réceptionnable en un geste.
+- **À traiter maintenant** : DLC dépassées, ruptures, DLC proches, articles sous le seuil et ruptures estimées d’après la consommation des 14 derniers jours.
+
+Chaque mouvement conserve l’auteur, la date, la quantité et la valeur. Les 3 000 mouvements les plus récents sont conservés. La migration `0003_inventory.sql` doit être appliquée (`npm run db:migrate`) avant de publier cette version.
+
 Les montants sont stockés en centimes. Le gain net mis en avant est `recettes encaissées − dépenses saisies`. Le coût horaire des pointages est une estimation distincte : il ne crée pas automatiquement une dépense salariale et ne constitue pas un calcul de paie.
 
 ## Hébergement Vercel

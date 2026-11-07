@@ -1,7 +1,8 @@
 export type Mode = 'live';
 export type Period = 'day' | 'month' | 'year';
-export type Tab = 'overview' | 'ledger' | 'team' | 'notebook' | 'settings';
+export type Tab = 'overview' | 'ledger' | 'inventory' | 'team' | 'notebook' | 'settings';
 export const INCOME_CATEGORIES = ['CB', 'Mypos', 'Espèces', 'Uber'] as const;
+export type IncomeChannel = (typeof INCOME_CATEGORIES)[number];
 export const LEGACY_INCOME_CATEGORIES = ['Sur place', 'À emporter', 'Livraison'] as const;
 export const CATEGORIES = [
   'Salaires',
@@ -70,12 +71,99 @@ export type Note = {
   createdAt: string;
 };
 export type Audit = { id: string; text: string; at: string };
+export const STOCK_CATEGORIES = [
+  'Viandes',
+  'Pains',
+  'Fromages',
+  'Légumes & fruits',
+  'Sauces & condiments',
+  'Frites & surgelés',
+  'Boissons',
+  'Desserts',
+  'Emballages',
+  'Hygiène & entretien',
+  'Autres',
+] as const;
+export const STOCK_UNITS = [
+  'pièce',
+  'kg',
+  'g',
+  'L',
+  'cl',
+  'carton',
+  'sachet',
+  'boîte',
+  'bouteille',
+  'canette',
+  'paquet',
+  'rouleau',
+  'pack',
+  'seau',
+] as const;
+export const STOCK_ZONES = [
+  'Chambre froide',
+  'Frigo',
+  'Congélateur',
+  'Réserve sèche',
+  'Boissons',
+  'Cuisine',
+] as const;
+export const LOSS_REASONS = [
+  'Périmé',
+  'Abîmé',
+  'Erreur de préparation',
+  'Repas du personnel',
+  'Offert',
+  'Autre',
+] as const;
+export type StockItemInput = {
+  name: string;
+  category: string;
+  unit: string;
+  zone: string;
+  supplier: string;
+  /** Alert threshold: at or below this quantity the item must be ordered. */
+  minQuantity: number;
+  /** Target quantity after a delivery (par level). */
+  parQuantity: number;
+  /** Cost of one unit, in cents. */
+  unitCost: number;
+  /** Closest use-by date of the stock on hand (YYYY-MM-DD). */
+  expiresAt?: string;
+};
+export type StockItem = StockItemInput & {
+  id: string;
+  quantity: number;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastCountedAt?: string;
+};
+export type StockMoveKind = 'in' | 'out' | 'loss' | 'count';
+export type StockMove = {
+  id: string;
+  itemId: string;
+  kind: StockMoveKind;
+  /** Signed quantity change. */
+  delta: number;
+  /** Quantity after the movement. */
+  after: number;
+  /** Unit cost in cents at the time of the movement. */
+  unitCost: number;
+  reason: string;
+  batchId?: string;
+  entryId?: string;
+  actor: string;
+  at: string;
+};
 export type State = {
   entries: Entry[];
   employees: Employee[];
   shifts: Shift[];
   notes: Note[];
   audit: Audit[];
+  stock: StockItem[];
+  stockMoves: StockMove[];
   goal: number;
   requestIds: string[];
 };
@@ -104,7 +192,34 @@ export type Action =
     }
   | { type: 'note.add'; title: string; body: string; category: Note['category'] }
   | { type: 'note.toggle'; id: string }
-  | { type: 'goal'; amount: number };
+  | { type: 'goal'; amount: number }
+  | {
+      type: 'income.day';
+      date: string;
+      amounts: Partial<Record<IncomeChannel, number>>;
+      note?: string;
+    }
+  | { type: 'stock.item.save'; id?: string; item: StockItemInput; initialQuantity?: number }
+  | { type: 'stock.items.import'; items: (StockItemInput & { quantity?: number })[] }
+  | { type: 'stock.item.archive'; id: string }
+  | {
+      type: 'stock.move';
+      itemId: string;
+      kind: 'in' | 'out' | 'loss';
+      quantity: number;
+      reason?: string;
+      unitCost?: number;
+      expiresAt?: string;
+    }
+  | { type: 'stock.count'; lines: { itemId: string; quantity: number }[] }
+  | {
+      type: 'stock.receive';
+      supplier: string;
+      date: string;
+      lines: { itemId: string; quantity: number; unitCost: number; expiresAt?: string }[];
+      expense?: { category: string; payment: string };
+      note?: string;
+    };
 export const money = (cents: number, decimals = true) =>
   new Intl.NumberFormat('fr-FR', {
     style: 'currency',

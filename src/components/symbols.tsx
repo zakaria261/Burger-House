@@ -3,6 +3,7 @@ export type SymbolName =
   | 'summary'
   | 'activity'
   | 'team'
+  | 'inventory'
   | 'notes'
   | 'settings'
   | 'bell'
@@ -85,6 +86,20 @@ export function Symbol({
           <circle cx="9" cy="7.5" r="3.3" fill={filled ? 'currentColor' : 'none'} />
           <path d="M2.5 20v-1.3a6.5 6.5 0 0 1 13 0V20z" fill={filled ? 'currentColor' : 'none'} />
           <path d="M16 4.4a3.2 3.2 0 0 1 0 6.2M18 14a5.2 5.2 0 0 1 3.5 4.9V20h-2.7" />
+        </svg>
+      );
+    case 'inventory':
+      return (
+        <svg {...common}>
+          <path
+            d="M3.5 7.4 12 3l8.5 4.4v9.2L12 21l-8.5-4.4z"
+            fill={filled ? 'currentColor' : 'none'}
+          />
+          <path
+            d="M3.8 7.6 12 11.9l8.2-4.3M12 11.9V20.6M7.8 5.2l8.3 4.4"
+            stroke={filled ? 'var(--symbol-cutout, var(--surface))' : 'currentColor'}
+            strokeWidth="1.5"
+          />
         </svg>
       );
     case 'notes':

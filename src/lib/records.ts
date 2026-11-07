@@ -1,9 +1,17 @@
 import { State } from './model';
-export const collections = ['entries', 'employees', 'shifts', 'notes', 'audit'] as const;
+export const collections = [
+  'entries',
+  'employees',
+  'shifts',
+  'notes',
+  'audit',
+  'stock',
+  'stockMoves',
+] as const;
 export type RecordRow = { kind: (typeof collections)[number]; id: string; data: string };
 export function pack(state: State) {
   return collections.flatMap((kind) =>
-    state[kind].map((item) => ({ kind, id: item.id, data: JSON.stringify(item) })),
+    (state[kind] ?? []).map((item) => ({ kind, id: item.id, data: JSON.stringify(item) })),
   );
 }
 export function metadata(state: State) {
@@ -17,6 +25,8 @@ export function unpack(data: string, rows: RecordRow[]): State {
     shifts: [],
     notes: [],
     audit: [],
+    stock: [],
+    stockMoves: [],
     goal: base.goal,
     requestIds: base.requestIds ?? [],
   };
@@ -28,6 +38,8 @@ export function unpack(data: string, rows: RecordRow[]): State {
   s.shifts.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   s.notes.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   s.audit.sort((a, b) => b.at.localeCompare(a.at));
+  s.stock.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  s.stockMoves.sort((a, b) => b.at.localeCompare(a.at));
   return s;
 }
 export function changes(before: State, after: State) {

@@ -36,6 +36,8 @@ import {
   Banknote,
   Trash2,
   Pencil,
+  FileSpreadsheet,
+  Printer,
 } from 'lucide-react';
 import {
   Action,
@@ -57,7 +59,10 @@ import {
   totals,
 } from '@/lib/model';
 import { Avatar, CategoryIcon, Empty, Modal, SegmentedControl } from './ui';
-import { ClockForm, EmployeeForm, EntryForm, NoteForm, ShiftForm } from './forms';
+import { ClockForm, EmployeeForm, EntryForm, IncomeForm, NoteForm, ShiftForm } from './forms';
+import Inventory, { StockAlertCard } from './inventory';
+import { PrintStatement, RevenueStatement } from './revenue-statement';
+import { revenueStatement, statementCsv } from '@/lib/revenue';
 import { AppleMark, Symbol } from './symbols';
 import NotificationSettings from './notification-settings';
 import RevenueChart from './revenue-chart';
@@ -79,14 +84,35 @@ type Dialog =
 const NAV = [
   { id: 'overview', label: 'Résumé', short: 'Résumé', symbol: 'summary' },
   { id: 'ledger', label: 'Activité', short: 'Activité', symbol: 'activity' },
+  { id: 'inventory', label: 'Inventaire', short: 'Stock', symbol: 'inventory' },
   { id: 'team', label: 'Équipe', short: 'Équipe', symbol: 'team' },
   { id: 'notebook', label: 'Notes de service', short: 'Notes', symbol: 'notes' },
 ] as const;
-const MOBILE_NAV = [
-  ...NAV,
-  { id: 'settings', label: 'Réglages', short: 'Réglages', symbol: 'settings' },
-] as const;
+// Five tabs on iPhone; settings stay one tap away through the profile button.
+const MOBILE_NAV = NAV;
+const TITLES: Record<Tab, [string, string]> = {
+  overview: ['Résumé', 'Les chiffres de votre restaurant.'],
+  ledger: ['Activité', 'Recettes, dépenses et justificatifs.'],
+  inventory: ['Inventaire', 'Stock, commandes, pertes et DLC.'],
+  team: ['Équipe', 'Pointages et temps de travail.'],
+  notebook: ['Notes', 'Les informations du prochain service.'],
+  settings: ['Réglages', 'Votre restaurant, vos préférences.'],
+};
+const incomeTitle = (e: Entry) =>
+  e.type === 'income' && e.title === e.category ? `Encaissement ${e.category}` : e.title;
+/** On iPhone, the share sheet saves or sends the file; elsewhere it is downloaded. */
 function download(name: string, content: string, type = 'text/csv;charset=utf-8') {
+  try {
+    const file = new File([content], name, { type });
+    if (
+      matchMedia('(pointer: coarse)').matches &&
+      typeof navigator.canShare === 'function' &&
+      navigator.canShare({ files: [file] })
+    ) {
+      navigator.share({ files: [file], title: name }).catch(() => {});
+      return;
+    }
+  } catch {}
   const url = URL.createObjectURL(new Blob([content], { type }));
   const a = document.createElement('a');
   a.href = url;
@@ -125,6 +151,7 @@ export default function Cockpit() {
   const [filter, setFilter] = useState('all');
   const [noteFilter, setNoteFilter] = useState('all');
   const [now, setNow] = useState(Date.now());
+  const [printing, setPrinting] = useState(false);
   const [ready, setReady] = useState(false);
   const lock = useRef(false);
   const latest = useRef<Snapshot | null>(null);
@@ -224,7 +251,8 @@ export default function Cockpit() {
       localStorage.removeItem('bh-cache-demo');
     } catch {}
     const params = new URLSearchParams(location.search);
-    if (params.get('tab') === 'team') setTab('team');
+    const wanted = params.get('tab');
+    if (wanted && wanted in TITLES) setTab(wanted as Tab);
     if (params.get('action') === 'expense') setDialog({ type: 'entry', kind: 'expense' });
     setReady(true);
     const onInstall = (event: Event) => {
@@ -276,7 +304,18 @@ export default function Cockpit() {
       return () => clearTimeout(t);
     }
   }, [toast]);
-  const mutate = async (action: Action, closeAfter = true) => {
+  const clearError = useCallback(() => setError(''), []);
+  useEffect(() => {
+    if (!printing) return;
+    const done = () => setPrinting(false);
+    window.addEventListener('afterprint', done);
+    const t = setTimeout(() => window.print(), 60);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener('afterprint', done);
+    };
+  }, [printing]);
+  const mutate = async (action: Action, closeAfter = true, toastError = !closeAfter) => {
     if (lock.current || offline || loadError || !snapshot) return false;
     lock.current = true;
     setBusy(true);
@@ -304,18 +343,24 @@ export default function Cockpit() {
       haptic('success');
       if (closeAfter) close();
       setToast(
-        action.type === 'clock'
-          ? 'Pointage enregistré.'
-          : action.type === 'entry.void'
-            ? 'Écriture annulée. La trace est conservée.'
-            : 'C’est enregistré.',
+        (
+          {
+            clock: 'Pointage enregistré.',
+            'entry.void': 'Écriture annulée. La trace est conservée.',
+            'income.day': 'Recettes enregistrées.',
+            'stock.count': 'Comptage enregistré. Le stock est à jour.',
+            'stock.receive': 'Livraison réceptionnée.',
+            'stock.items.import': 'Articles ajoutés à l’inventaire.',
+            'stock.move': 'Mouvement enregistré.',
+          } as Partial<Record<Action['type'], string>>
+        )[action.type] ?? 'C’est enregistré.',
       );
       return true;
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Une erreur est survenue.';
       haptic('error');
       setError(message);
-      if (!closeAfter) setToast(message);
+      if (toastError) setToast(message);
       return false;
     } finally {
       lock.current = false;
@@ -360,6 +405,11 @@ export default function Cockpit() {
         {} as Record<string, number>,
       ),
   ).sort((a, b) => b[1] - a[1]);
+  const statement = useMemo(
+    () => revenueStatement(state?.entries ?? [], date, period),
+    [state, date, period],
+  );
+  const incomeByChannel = INCOME_CATEGORIES.map((c) => [c, statement.totals[c] ?? 0] as const);
   const laborMs = state?.shifts.reduce((a, s) => a + periodShiftMs(s, date, period, now), 0) ?? 0;
   const laborCost =
     state?.shifts.reduce(
@@ -417,6 +467,18 @@ export default function Cockpit() {
     );
     setToast('Le registre a été exporté.');
     close();
+  }
+  function exportStatement() {
+    download(
+      `burger-house-releve-recettes-${period === 'day' ? date : period === 'month' ? date.slice(0, 7) : date.slice(0, 4)}.csv`,
+      statementCsv(statement, period),
+    );
+    setToast('Le relevé des recettes a été exporté.');
+    close();
+  }
+  function printStatement() {
+    close();
+    setPrinting(true);
   }
   function exportShifts() {
     if (!state) return;
@@ -598,28 +660,8 @@ export default function Cockpit() {
               <div className="eyebrow">
                 {frenchDate(today(), { weekday: 'long', day: 'numeric', month: 'long' })}
               </div>
-              <h1>
-                {tab === 'overview'
-                  ? 'Résumé'
-                  : tab === 'ledger'
-                    ? 'Activité'
-                    : tab === 'team'
-                      ? 'Équipe'
-                      : tab === 'notebook'
-                        ? 'Notes'
-                        : 'Réglages'}
-              </h1>
-              <p>
-                {tab === 'overview'
-                  ? 'Les chiffres de votre restaurant.'
-                  : tab === 'ledger'
-                    ? 'Recettes, dépenses et justificatifs.'
-                    : tab === 'team'
-                      ? 'Pointages et temps de travail.'
-                      : tab === 'notebook'
-                        ? 'Les informations du prochain service.'
-                        : 'Votre restaurant, vos préférences.'}
-              </p>
+              <h1>{TITLES[tab][0]}</h1>
+              <p>{TITLES[tab][1]}</p>
             </div>
             <div className="heading-buttons">
               {(tab === 'overview' || tab === 'ledger') && (
@@ -918,6 +960,7 @@ export default function Cockpit() {
                               <ArrowRight size={15} />
                             </button>
                           </section>
+                          <StockAlertCard state={state} onOpen={() => selectTab('inventory')} />
                           <section className="goal-card">
                             <div className="goal-card-header">
                               <span>
@@ -999,6 +1042,52 @@ export default function Cockpit() {
                       </div>
                       <section className="panel breakdown-panel">
                         <PanelHeader
+                          title="Recettes par canal"
+                          subtitle="CB, Mypos, espèces et Uber sur la période."
+                          action={
+                            <button className="text-button" onClick={() => selectTab('ledger')}>
+                              Relevé
+                              <ArrowUpRight size={15} />
+                            </button>
+                          }
+                        />
+                        <div className="breakdown-grid">
+                          {incomeByChannel.map(([channel, amount], i) => (
+                            <button
+                              key={channel}
+                              className="category-breakdown"
+                              onClick={() => {
+                                selectTab('ledger');
+                                setFilter(channel);
+                              }}
+                            >
+                              <span className={`category-symbol channel-symbol-${i}`}>
+                                <CategoryIcon category={channel} />
+                              </span>
+                              <div>
+                                <span>
+                                  {channel}
+                                  <small>
+                                    {total.income ? Math.round((amount / total.income) * 100) : 0} %
+                                    des recettes
+                                  </small>
+                                </span>
+                                <strong>{money(amount)}</strong>
+                                <div className="mini-progress">
+                                  <i
+                                    style={{
+                                      width: `${total.income ? (amount / total.income) * 100 : 0}%`,
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                              <ChevronRight size={15} />
+                            </button>
+                          ))}
+                        </div>
+                      </section>
+                      <section className="panel breakdown-panel">
+                        <PanelHeader
                           title="Répartition des dépenses"
                           subtitle="Par catégorie sur la période."
                           action={<span className="soft-label">{selectedLabel}</span>}
@@ -1069,6 +1158,12 @@ export default function Cockpit() {
                           Ajouter une recette
                         </button>
                       </div>
+                      <RevenueStatement
+                        statement={statement}
+                        period={period}
+                        onExport={exportStatement}
+                        onPrint={printStatement}
+                      />
                       <section className="panel ledger-panel">
                         <div className="ledger-tools">
                           <div className="filter-tabs">
@@ -1147,6 +1242,22 @@ export default function Cockpit() {
                         de gestion ne remplace pas votre comptabilité.
                       </p>
                     </>
+                  )}
+                  {tab === 'inventory' && (
+                    <Inventory
+                      state={state}
+                      submit={(action) =>
+                        unavailable
+                          ? (setToast(loadError || 'Vous êtes hors connexion.'),
+                            Promise.resolve(false))
+                          : mutate(action, false, false)
+                      }
+                      busy={busy}
+                      error={error}
+                      clearError={clearError}
+                      unavailable={unavailable}
+                      notify={setToast}
+                    />
                   )}
                   {tab === 'team' && (
                     <>
@@ -1600,6 +1711,19 @@ export default function Cockpit() {
                         </div>
                         <div className="setting-row">
                           <span>
+                            Relevé des recettes
+                            <small>CB, Mypos, espèces et Uber, jour par jour, avec le total.</small>
+                          </span>
+                          <button
+                            className="icon-button"
+                            aria-label="Exporter le relevé des recettes"
+                            onClick={exportStatement}
+                          >
+                            <Download size={20} />
+                          </button>
+                        </div>
+                        <div className="setting-row">
+                          <span>
                             Exporter les heures<small>Pointages, pauses et heures nettes.</small>
                           </span>
                           <button
@@ -1699,8 +1823,12 @@ export default function Cockpit() {
       )}
       {dialog?.type === 'entry' && (
         <Modal
-          title={dialog.kind === 'income' ? 'Ajouter une recette' : 'Ajouter une dépense'}
-          subtitle="Montant, catégorie et détail du mouvement."
+          title={dialog.kind === 'income' ? 'Recettes du jour' : 'Ajouter une dépense'}
+          subtitle={
+            dialog.kind === 'income'
+              ? 'CB, Mypos, espèces, Uber : saisissez les totaux de la journée.'
+              : 'Montant, catégorie et détail du mouvement.'
+          }
           onClose={close}
           closing={sheetClosing}
         >
@@ -1716,7 +1844,11 @@ export default function Cockpit() {
             onChange={(kind) => open({ type: 'entry', kind })}
             label="Type de mouvement"
           />
-          <EntryForm key={dialog.kind} type={dialog.kind} {...props} />
+          {dialog.kind === 'income' ? (
+            <IncomeForm key="income" entries={state?.entries ?? []} {...props} />
+          ) : (
+            <EntryForm key="expense" type="expense" {...props} />
+          )}
         </Modal>
       )}
       {dialog?.type === 'shift' && state && (
@@ -1895,6 +2027,29 @@ export default function Cockpit() {
           closing={sheetClosing}
         >
           <div className="export-options">
+            <button onClick={exportStatement}>
+              <span>
+                <FileSpreadsheet size={23} />
+              </span>
+              <div>
+                <h3>Le relevé des recettes · Excel</h3>
+                <p>
+                  {period === 'year' ? 'Mois' : 'Jour'} par {period === 'year' ? 'mois' : 'jour'} :
+                  CB, Mypos, espèces, Uber et total.
+                </p>
+              </div>
+              <Download size={19} />
+            </button>
+            <button onClick={printStatement}>
+              <span>
+                <Printer size={23} />
+              </span>
+              <div>
+                <h3>Le relevé des recettes · PDF</h3>
+                <p>Version imprimable, à enregistrer en PDF ou à envoyer.</p>
+              </div>
+              <Download size={19} />
+            </button>
             <button onClick={exportEntries}>
               <span>
                 <ArrowLeftRight size={23} />
@@ -1918,6 +2073,7 @@ export default function Cockpit() {
           </div>
         </Modal>
       )}
+      {printing && <PrintStatement statement={statement} period={period} />}
       {dialog?.type === 'archive' && (
         <Modal
           title="Archiver ce salarié ?"
@@ -2007,7 +2163,7 @@ function TransactionRow({
         <CategoryIcon category={e.category} />
       </span>
       <span className="transaction-name">
-        <strong>{e.title}</strong>
+        <strong>{incomeTitle(e)}</strong>
         <small>
           {e.category}
           <span>·</span>
@@ -2083,7 +2239,7 @@ function EntryDetails({
         <strong>
           {e.type === 'income' ? '+' : '−'} {money(e.amount)}
         </strong>
-        <h3>{e.title}</h3>
+        <h3>{incomeTitle(e)}</h3>
         <span>
           {e.voidedAt
             ? 'Écriture annulée'
