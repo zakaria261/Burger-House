@@ -521,6 +521,21 @@ export async function applyAction(
       message = `Article archivé : ${item.name}`;
       break;
     }
+    case 'stock.items.archive': {
+      check(Array.isArray(action.ids) && action.ids.length > 0, 'Aucun article sélectionné.');
+      check(action.ids.length <= 500, 'Trop d’articles en une fois.');
+      check(
+        new Set(action.ids).size === action.ids.length,
+        'Un article est sélectionné deux fois.',
+      );
+      for (const id of action.ids) {
+        const item = activeItem(s, id);
+        item.active = false;
+        item.updatedAt = at;
+      }
+      message = `${action.ids.length} article${action.ids.length > 1 ? 's' : ''} retiré${action.ids.length > 1 ? 's' : ''} de l’inventaire`;
+      break;
+    }
     case 'stock.move': {
       const item = activeItem(s, action.itemId);
       check(['in', 'out', 'loss'].includes(action.kind), 'Mouvement invalide.');

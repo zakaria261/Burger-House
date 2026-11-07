@@ -7383,3 +7383,113 @@ html {
 .form .add-line select {
   background-image: none;
 }
+
+/* Menu catalog and selection mode. */
+.stock-icon.tint-10 {
+  background: #c8a26a1c;
+  color: #a77b3a;
+}
+.catalog-intro {
+  display: flex;
+  gap: 11px;
+  margin: 18px 27px 4px;
+  padding: 14px 15px;
+  border-radius: 15px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.catalog-intro p {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+.catalog-item em {
+  display: block;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--accent);
+  margin-top: 2px;
+}
+.stock-manage {
+  min-height: 38px;
+  padding: 8px 13px;
+}
+.stock-manage-bar {
+  position: sticky;
+  top: 8px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 16px;
+  padding: 8px 8px 8px 16px;
+  border-radius: 16px;
+  background: var(--glass);
+  backdrop-filter: blur(30px) saturate(160%);
+  -webkit-backdrop-filter: blur(30px) saturate(160%);
+  box-shadow:
+    0 4px 18px #0000001a,
+    inset 0 0 0 0.5px var(--separator);
+  font-size: 13px;
+  font-weight: 600;
+}
+.stock-manage-bar > span {
+  flex: 1;
+  min-width: 0;
+}
+.stock-manage-bar .button {
+  min-height: 38px;
+  padding: 8px 14px;
+}
+.pick-circle {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--tertiary);
+  color: #fff;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+.stock-row.is-picked {
+  background: #ff3b300d;
+}
+.stock-row.is-picked .pick-circle {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+.stock-row.is-selecting .transaction-arrow {
+  display: none;
+}
+.stock-row.is-selecting + .stock-row:before {
+  left: 114px;
+}
+.bulk-names {
+  font-size: 13px !important;
+  color: var(--ink) !important;
+  padding: 12px 14px;
+  border-radius: 13px;
+  background: var(--surface-secondary);
+  margin-bottom: 14px !important;
+  max-height: 180px;
+  overflow-y: auto;
+}
+@media (max-width: 760px), (max-width: 960px) and (hover: none) and (pointer: coarse) {
+  .catalog-intro {
+    margin: 14px 20px 4px;
+  }
+  .stock-tools .stock-manage {
+    order: 5;
+    min-height: 40px;
+  }
+  .stock-manage-bar {
+    margin: 10px 12px;
+  }
+  .stock-row.is-selecting + .stock-row:before {
+    left: 102px;
+  }
+}

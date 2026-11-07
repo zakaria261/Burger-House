@@ -34,6 +34,8 @@ import {
   SprayCan,
   Carrot,
   Trash2,
+  Wheat,
+  ListChecks,
   TrendingDown,
   Truck,
   X,
@@ -95,7 +97,8 @@ type Sheet =
   | { type: 'order' }
   | { type: 'loss' }
   | { type: 'catalog' }
-  | { type: 'archive'; id: string };
+  | { type: 'archive'; id: string }
+  | { type: 'bulk-archive' };
 type Filter = 'all' | 'order' | 'out' | 'expiry';
 type Group = 'category' | 'zone' | 'supplier';
 
@@ -123,6 +126,7 @@ const CATEGORY_ICON: Record<string, typeof Box> = {
   Desserts: IceCreamCone,
   Emballages: Package,
   'Hygiène & entretien': SprayCan,
+  Épicerie: Wheat,
   Autres: Box,
 };
 export function StockIcon({ category, size = 19 }: { category: string; size?: number }) {
@@ -234,6 +238,15 @@ export default function Inventory({
   const [filter, setFilter] = useState<Filter>('all');
   const [group, setGroup] = useState<Group>('category');
   const [search, setSearch] = useState('');
+  const [managing, setManaging] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const togglePick = (id: string) =>
+    setPicked((p) => {
+      const next = new Set(p);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const [draftCount, setDraftCount] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -344,15 +357,16 @@ export default function Inventory({
           </div>
           <h2>Votre inventaire, prêt en 3 minutes.</h2>
           <p>
-            Choisissez vos produits, comptez une première fois, et l’app s’occupe du reste : alertes
-            de rupture, DLC, liste de courses par fournisseur et valeur du stock.
+            Vos produits sont déjà prêts, d’après votre carte en ligne. Comptez une première fois,
+            et l’app s’occupe du reste : alertes de rupture, DLC, liste de courses par fournisseur
+            et valeur du stock.
           </p>
           <ol className="onboarding-steps">
             <li>
               <span>1</span>
               <div>
                 <strong>Ajoutez vos produits</strong>
-                <small>Depuis le catalogue burger ou un par un.</small>
+                <small>Préparés d’après votre carte : décochez les erreurs.</small>
               </div>
             </li>
             <li>
@@ -377,7 +391,7 @@ export default function Inventory({
               onClick={() => open({ type: 'catalog' })}
             >
               <Sparkles size={17} />
-              Choisir dans le catalogue burger
+              Voir les produits de ma carte
             </button>
             <button
               className="button button-secondary"
@@ -635,6 +649,18 @@ export default function Inventory({
                 <option value="supplier">Par fournisseur</option>
               </select>
               <button
+                className={`button stock-manage ${managing ? 'button-dark' : 'button-secondary'}`}
+                disabled={unavailable}
+                aria-pressed={managing}
+                onClick={() => {
+                  setManaging(!managing);
+                  setPicked(new Set());
+                }}
+              >
+                <ListChecks size={17} />
+                <span>{managing ? 'Terminé' : 'Sélectionner'}</span>
+              </button>
+              <button
                 className="button button-soft stock-add"
                 disabled={unavailable}
                 onClick={() => open({ type: 'edit' })}
@@ -643,6 +669,35 @@ export default function Inventory({
                 <span>Article</span>
               </button>
             </div>
+            {managing && (
+              <div className="stock-manage-bar">
+                <span>
+                  {picked.size
+                    ? `${picked.size} sélectionné${picked.size > 1 ? 's' : ''}`
+                    : 'Touchez les articles à retirer'}
+                </span>
+                <button
+                  className="text-button"
+                  onClick={() =>
+                    setPicked(
+                      picked.size === visible.length
+                        ? new Set()
+                        : new Set(visible.map((i) => i.id)),
+                    )
+                  }
+                >
+                  {picked.size === visible.length && visible.length ? 'Aucun' : 'Tout'}
+                </button>
+                <button
+                  className="button button-danger"
+                  disabled={!picked.size || unavailable}
+                  onClick={() => open({ type: 'bulk-archive' })}
+                >
+                  <Trash2 size={15} />
+                  Supprimer
+                </button>
+              </div>
+            )}
             {groups.length ? (
               groups.map(([name, list]) => (
                 <div className="stock-group" key={name}>
@@ -660,7 +715,10 @@ export default function Inventory({
                         item={item}
                         day={day}
                         usage={usage[item.id]}
-                        onClick={() => open({ type: 'item', id: item.id })}
+                        picked={managing ? picked.has(item.id) : undefined}
+                        onClick={() =>
+                          managing ? togglePick(item.id) : open({ type: 'item', id: item.id })
+                        }
                       />
                     ))}
                 </div>
@@ -696,7 +754,7 @@ export default function Inventory({
                 onClick={() => open({ type: 'catalog' })}
               >
                 <Sparkles size={14} />
-                Catalogue burger
+                Produits de ma carte
               </button>
             </div>
           </section>
@@ -839,8 +897,8 @@ export default function Inventory({
             )}
             {sheet?.type === 'catalog' && (
               <Modal
-                title="Catalogue burger"
-                subtitle="Cochez vos produits. Seuils et fournisseurs restent modifiables."
+                title="Les produits de votre carte"
+                subtitle="Ingrédients déduits de votre menu. Décochez ce qui est faux."
                 onClose={close}
                 closing={closing}
                 wide
@@ -848,9 +906,45 @@ export default function Inventory({
                 <CatalogSheet existing={items} onSubmit={run} {...sheetProps} />
               </Modal>
             )}
+            {sheet?.type === 'bulk-archive' && (
+              <Modal
+                title={`Supprimer ${picked.size} article${picked.size > 1 ? 's' : ''} ?`}
+                subtitle="Ils disparaissent de l’inventaire, des comptages et des commandes."
+                onClose={close}
+                closing={closing}
+              >
+                <div className="confirm-content">
+                  <p className="bulk-names">
+                    {stock
+                      .filter((i) => picked.has(i.id))
+                      .map((i) => i.name)
+                      .join(' · ')}
+                  </p>
+                  <p>
+                    L’historique de leurs mouvements est conservé. Vous pourrez les recréer depuis
+                    le catalogue ou avec « Article ».
+                  </p>
+                  {error && <p className="form-error">{error}</p>}
+                  <button
+                    className="button button-danger full"
+                    disabled={busy || unavailable || !picked.size}
+                    onClick={async () => {
+                      const ok = await run({ type: 'stock.items.archive', ids: [...picked] });
+                      if (ok) {
+                        setPicked(new Set());
+                        setManaging(false);
+                      }
+                    }}
+                  >
+                    <Trash2 size={17} />
+                    {busy ? 'Suppression…' : 'Confirmer la suppression'}
+                  </button>
+                </div>
+              </Modal>
+            )}
             {sheet?.type === 'archive' && current && (
               <Modal
-                title="Archiver cet article ?"
+                title="Supprimer cet article ?"
                 subtitle={current.name}
                 onClose={close}
                 closing={closing}
@@ -862,12 +956,12 @@ export default function Inventory({
                   </p>
                   {error && <p className="form-error">{error}</p>}
                   <button
-                    className="button button-dark full"
+                    className="button button-danger full"
                     disabled={busy || unavailable}
                     onClick={() => void run({ type: 'stock.item.archive', id: current.id })}
                   >
-                    <Archive size={17} />
-                    {busy ? 'Archivage…' : 'Confirmer l’archivage'}
+                    <Trash2 size={17} />
+                    {busy ? 'Suppression…' : 'Confirmer la suppression'}
                   </button>
                 </div>
               </Modal>
@@ -917,15 +1011,28 @@ function StockRow({
   day,
   usage,
   onClick,
+  picked,
 }: {
   item: StockItem;
   day: string;
   usage: number;
   onClick: () => void;
+  /** Defined in selection mode. */
+  picked?: boolean;
 }) {
   const left = daysLeft(item, usage);
+  const selecting = picked !== undefined;
   return (
-    <button className="stock-row" onClick={onClick}>
+    <button
+      className={`stock-row ${selecting ? 'is-selecting' : ''} ${picked ? 'is-picked' : ''}`}
+      onClick={onClick}
+      aria-pressed={selecting ? picked : undefined}
+    >
+      {selecting && (
+        <span className="pick-circle" aria-hidden="true">
+          {picked && <Check size={14} strokeWidth={3} />}
+        </span>
+      )}
       <StockIcon category={item.category} />
       <span className="stock-name">
         <strong>{item.name}</strong>
@@ -1312,7 +1419,7 @@ function ItemSheet({
           onClick={onArchive}
         >
           <Archive size={16} />
-          Archiver
+          Supprimer
         </button>
       </div>
     </div>
@@ -2226,7 +2333,10 @@ function CatalogSheet({
 }) {
   const has = (name: string) =>
     existing.some((i) => i.name.toLocaleLowerCase('fr') === name.toLocaleLowerCase('fr'));
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Built from the restaurant's own menu: everything starts ticked, the manager unticks mistakes.
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(BURGER_CATALOG.filter((i) => !has(i.name)).map((i) => i.name)),
+  );
   const toggle = (names: string[], on: boolean) =>
     setSelected((s) => {
       const next = new Set(s);
@@ -2238,6 +2348,15 @@ function CatalogSheet({
   ).filter(([, l]) => l.length);
   return (
     <div className="catalog-sheet">
+      <div className="catalog-intro">
+        <Sparkles size={18} />
+        <p>
+          Liste préparée d’après <strong>votre carte bhouse26.fr</strong> : tacos, pizzas, burgers,
+          bowls, riz, satays et finger food. Le site ne donne pas les recettes : les ingrédients
+          sont déduits du nom des plats. <strong>Décochez ce qui ne vous concerne pas</strong>, et
+          modifiez ou supprimez un article à tout moment.
+        </p>
+      </div>
       {groups.map(([category, list]) => {
         const free = list.filter((i) => !has(i.name)).map((i) => i.name);
         const all = free.length > 0 && free.every((n) => selected.has(n));
@@ -2269,6 +2388,7 @@ function CatalogSheet({
                         ? 'Déjà dans l’inventaire'
                         : `${i.unit} · ${i.zone} · ${i.supplier} · alerte ${qty(i.minQuantity)}`}
                     </small>
+                    <em>Pour : {i.usedIn.join(', ')}</em>
                   </span>
                 </label>
               );
@@ -2288,7 +2408,9 @@ function CatalogSheet({
           onClick={() =>
             void onSubmit({
               type: 'stock.items.import',
-              items: BURGER_CATALOG.filter((i) => selected.has(i.name)),
+              items: BURGER_CATALOG.filter((i) => selected.has(i.name)).map(
+                ({ usedIn: _, ...item }) => item,
+              ),
             })
           }
         >

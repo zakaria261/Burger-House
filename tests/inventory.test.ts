@@ -306,3 +306,39 @@ test('le stock est conservé dans le registre par enregistrements', async () => 
   const legacy = unpack(JSON.stringify({ goal: 0 }), []);
   assert.deepEqual(legacy.stock, []);
 });
+
+test('le catalogue suit la carte et la suppression groupée retire les articles choisis', async () => {
+  const names = new Set(BURGER_CATALOG.map((i) => i.name.toLocaleLowerCase('fr')));
+  assert.equal(names.size, BURGER_CATALOG.length, 'aucun doublon dans le catalogue');
+  assert.ok(BURGER_CATALOG.every((i) => i.usedIn.length && i.usedIn.every(Boolean)));
+  for (const n of [
+    'Galette tacos',
+    'Pâte à pizza (pâton)',
+    'Raclette',
+    'Boursin',
+    'Riz',
+    'Brochettes satay',
+  ])
+    assert.ok(
+      BURGER_CATALOG.some((i) => i.name === n),
+      n,
+    );
+  let s = await applyAction(
+    await initialState(),
+    { type: 'stock.items.import', items: BURGER_CATALOG },
+    at,
+  );
+  assert.equal(
+    s.stock.length,
+    BURGER_CATALOG.length,
+    'toutes les catégories et unités sont valides',
+  );
+  const ids = s.stock.slice(0, 3).map((i) => i.id);
+  s = await applyAction(s, { type: 'stock.items.archive', ids }, at);
+  assert.equal(s.stock.filter((i) => i.active).length, BURGER_CATALOG.length - 3);
+  assert.match(s.audit[0].text, /3 articles retirés/);
+  await assert.rejects(applyAction(s, { type: 'stock.items.archive', ids }, at), /archivé/);
+  // A removed ingredient can be recreated with a corrected name or settings.
+  s = await applyAction(s, { type: 'stock.items.import', items: BURGER_CATALOG.slice(0, 1) }, at);
+  assert.equal(s.stock.filter((i) => i.active).length, BURGER_CATALOG.length - 2);
+});

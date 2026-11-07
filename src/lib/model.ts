@@ -82,6 +82,7 @@ export const STOCK_CATEGORIES = [
   'Desserts',
   'Emballages',
   'Hygiène & entretien',
+  'Épicerie',
   'Autres',
 ] as const;
 export const STOCK_UNITS = [
@@ -202,6 +203,7 @@ export type Action =
   | { type: 'stock.item.save'; id?: string; item: StockItemInput; initialQuantity?: number }
   | { type: 'stock.items.import'; items: (StockItemInput & { quantity?: number })[] }
   | { type: 'stock.item.archive'; id: string }
+  | { type: 'stock.items.archive'; ids: string[] }
   | {
       type: 'stock.move';
       itemId: string;
