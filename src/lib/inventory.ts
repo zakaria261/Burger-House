@@ -46,10 +46,36 @@ export function roundOrder(quantity: number, unit: string) {
   return Math.ceil(quantity * 2 - 0.0001) / 2;
 }
 
+/** Rounds up to whole supplier packs (cartons) when the pack size is known. */
+export function roundToPack(quantity: number, item: Pick<StockItem, 'unit' | 'packSize'>) {
+  if (quantity <= 0) return 0;
+  if (item.packSize && item.packSize > 0)
+    return roundQty(Math.ceil(quantity / item.packSize - 0.0001) * item.packSize);
+  return roundOrder(quantity, item.unit);
+}
+
 export function suggestedOrder(item: StockItem) {
   if (!needsOrder(item)) return 0;
   const target = item.parQuantity > item.minQuantity ? item.parQuantity : item.minQuantity * 2;
-  return roundOrder(Math.max(target - Math.max(0, item.quantity), 0), item.unit) || 1;
+  return roundToPack(Math.max(target - Math.max(0, item.quantity), 0), item) || 1;
+}
+
+/**
+ * Weekly order: what the coming days will use, plus the alert threshold as safety stock,
+ * minus what is left. Without usage history yet, it tops the item up to its ideal stock.
+ */
+export function weeklyOrder(item: StockItem, usage: number, coverDays: number) {
+  if (!item.active) return 0;
+  const need =
+    usage > 0 ? usage * coverDays + item.minQuantity : item.parQuantity || item.minQuantity * 2;
+  const missing = need - Math.max(0, item.quantity);
+  return missing > 0.0001 ? roundToPack(missing, item) : 0;
+}
+
+export function packLabel(quantity: number, item: Pick<StockItem, 'unit' | 'packSize'>) {
+  if (!item.packSize || item.packSize <= 0) return formatQty(quantity, item.unit);
+  const packs = roundQty(quantity / item.packSize);
+  return `${qty(packs)} colis (${formatQty(quantity, item.unit)})`;
 }
 
 /**
@@ -69,11 +95,9 @@ export function dailyUsage(item: StockItem, moves: StockMove[], now = new Date()
       used -= m.delta;
   }
   if (used <= 0 || first === Infinity) return 0;
-  // Use the observed span (minimum 3 days) so that a new item is not penalised.
-  const span = Math.max(
-    3,
-    Math.min(days, (now.getTime() - Math.min(first, Date.parse(item.createdAt))) / 86400000),
-  );
+  // The whole window counts (weekly counts report a week of usage at once); a new item is
+  // measured from its creation, with a minimum of 3 days.
+  const span = Math.max(3, Math.min(days, (now.getTime() - Date.parse(item.createdAt)) / 86400000));
   return used / span;
 }
 
@@ -117,10 +141,14 @@ export type OrderGroup = {
   lines: { item: StockItem; quantity: number; cost: number }[];
   total: number;
 };
-export function orderGroups(items: StockItem[], overrides: Record<string, number> = {}) {
+export function orderGroups(
+  items: StockItem[],
+  overrides: Record<string, number> = {},
+  suggest: (item: StockItem) => number = suggestedOrder,
+) {
   const groups = new Map<string, OrderGroup>();
   for (const item of items) {
-    const quantity = overrides[item.id] ?? suggestedOrder(item);
+    const quantity = overrides[item.id] ?? suggest(item);
     if (!item.active || quantity <= 0) continue;
     const supplier = item.supplier.trim() || 'Sans fournisseur';
     const group = groups.get(supplier) ?? { supplier, lines: [], total: 0 };
@@ -129,14 +157,16 @@ export function orderGroups(items: StockItem[], overrides: Record<string, number
     group.total += cost;
     groups.set(supplier, group);
   }
-  return [...groups.values()].sort((a, b) =>
-    a.supplier === 'Sans fournisseur'
-      ? 1
-      : b.supplier === 'Sans fournisseur'
-        ? -1
-        : a.supplier.localeCompare(b.supplier, 'fr'),
+  // The main wholesaler (GFD) first, then by name; items without a supplier last.
+  const rank = (g: OrderGroup) =>
+    g.supplier === 'Sans fournisseur' ? 2 : /gfd/i.test(g.supplier) ? 0 : 1;
+  return [...groups.values()].sort(
+    (a, b) => rank(a) - rank(b) || a.supplier.localeCompare(b.supplier, 'fr'),
   );
 }
+
+const orderLine = (l: OrderGroup['lines'][number]) =>
+  `• ${l.item.name}${l.item.ref ? ` (réf. ${l.item.ref})` : ''} : ${packLabel(l.quantity, l.item)}`;
 
 export function orderMessage(
   group: OrderGroup,
@@ -146,7 +176,7 @@ export function orderMessage(
     `Bonjour,`,
     ``,
     `Commande pour ${restaurant} :`,
-    ...group.lines.map((l) => `• ${l.item.name} : ${formatQty(l.quantity, l.item.unit)}`),
+    ...group.lines.map(orderLine),
     ``,
     `Merci de nous confirmer la livraison.`,
     `Bonne journée !`,
@@ -158,7 +188,7 @@ export function orderSummary(groups: OrderGroup[]) {
     .map(
       (g) =>
         `${g.supplier}${g.total ? ` (≈ ${money(g.total)})` : ''}\n` +
-        g.lines.map((l) => `• ${l.item.name} : ${formatQty(l.quantity, l.item.unit)}`).join('\n'),
+        g.lines.map(orderLine).join('\n'),
     )
     .join('\n\n');
 }

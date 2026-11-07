@@ -72,6 +72,11 @@ function stockInput(input: StockItemInput, now: Date): StockItemInput {
   );
   const minQuantity = quantity(input.minQuantity, true, 'Seuil d’alerte invalide.');
   const parQuantity = quantity(input.parQuantity, true, 'Stock idéal invalide.');
+  const packSize = input.packSize ? quantity(input.packSize, false, 'Colisage invalide.') : 0;
+  check(
+    input.ref === undefined || (typeof input.ref === 'string' && input.ref.length <= 40),
+    'Référence fournisseur trop longue.',
+  );
   check(
     !parQuantity || parQuantity >= minQuantity,
     'Le stock idéal doit être supérieur ou égal au seuil d’alerte.',
@@ -93,6 +98,8 @@ function stockInput(input: StockItemInput, now: Date): StockItemInput {
     parQuantity,
     unitCost: input.unitCost,
     expiresAt: input.expiresAt ? day(input.expiresAt, now, true) : undefined,
+    ...(packSize ? { packSize } : {}),
+    ...(input.ref?.trim() ? { ref: input.ref.trim() } : {}),
   };
 }
 function addMove(
@@ -173,6 +180,7 @@ export async function applyAction(
   const s = structuredClone(previous);
   s.stock ??= [];
   s.stockMoves ??= [];
+  s.orders ??= [];
   const at = now.toISOString();
   let message = '';
   switch (action.type) {
@@ -460,6 +468,8 @@ export async function applyAction(
         const item = activeItem(s, action.id);
         Object.assign(item, input, { updatedAt: at });
         if (!input.expiresAt) delete item.expiresAt;
+        if (!input.packSize) delete item.packSize;
+        if (!input.ref) delete item.ref;
         message = `Article modifié : ${item.name}`;
       } else {
         check(s.stock.filter((i) => i.active).length < 500, 'Nombre maximal d’articles atteint.');
@@ -605,6 +615,48 @@ export async function applyAction(
       message = `Comptage : ${action.lines.length} article${action.lines.length > 1 ? 's' : ''}, ${changed} écart${changed > 1 ? 's' : ''}${value ? ` (${value > 0 ? '+' : '−'}${money(Math.abs(value))})` : ''}`;
       break;
     }
+    case 'stock.order.place': {
+      const supplier = typeof action.supplier === 'string' ? action.supplier.trim() : '';
+      check(supplier.length <= 60, 'Nom du fournisseur trop long.');
+      check(
+        Number.isInteger(action.coverDays) && action.coverDays >= 1 && action.coverDays <= 31,
+        'Nombre de jours à couvrir invalide.',
+      );
+      check(Array.isArray(action.lines) && action.lines.length > 0, 'La commande est vide.');
+      check(action.lines.length <= 200, 'Trop de lignes.');
+      check(
+        new Set(action.lines.map((l) => l.itemId)).size === action.lines.length,
+        'Un article apparaît deux fois dans la commande.',
+      );
+      const lines = action.lines.map((l) => {
+        const item = activeItem(s, l.itemId);
+        return {
+          itemId: item.id,
+          name: item.name,
+          unit: item.unit,
+          quantity: quantity(l.quantity, false, `Quantité invalide pour ${item.name}.`),
+        };
+      });
+      s.orders.unshift({
+        id: crypto.randomUUID(),
+        supplier,
+        lines,
+        coverDays: action.coverDays,
+        status: 'placed',
+        placedAt: at,
+        actor,
+      });
+      s.orders = s.orders.slice(0, 40);
+      message = `Commande ${supplier || 'fournisseur'} passée : ${lines.length} produit${lines.length > 1 ? 's' : ''}`;
+      break;
+    }
+    case 'stock.order.cancel': {
+      const order = s.orders.find((o) => o.id === action.id);
+      check(order && order.status === 'placed', 'Cette commande est introuvable ou déjà traitée.');
+      order!.status = 'cancelled';
+      message = `Commande ${order!.supplier} annulée`;
+      break;
+    }
     case 'stock.receive': {
       const supplier = typeof action.supplier === 'string' ? action.supplier.trim() : '';
       check(supplier.length <= 60, 'Nom du fournisseur trop long.');
@@ -667,7 +719,22 @@ export async function applyAction(
           createdAt: at,
         });
       }
-      message = `Livraison${supplier ? ` ${supplier}` : ''} réceptionnée : ${action.lines.length} article${action.lines.length > 1 ? 's' : ''}${action.expense ? ` · dépense ${money(total)}` : ''}`;
+      if (action.orderId) {
+        const order = s.orders.find((o) => o.id === action.orderId);
+        check(order && order.status === 'placed', 'Cette commande est introuvable ou déjà reçue.');
+        order!.status = 'received';
+        order!.receivedAt = at;
+        order!.missing = order!.lines
+          .map((l) => {
+            const got = action.lines.find((x) => x.itemId === l.itemId)?.quantity ?? 0;
+            return { ...l, quantity: roundQty(l.quantity - got) };
+          })
+          .filter((l) => l.quantity > 0);
+      }
+      const short = action.orderId
+        ? (s.orders.find((o) => o.id === action.orderId)?.missing?.length ?? 0)
+        : 0;
+      message = `Livraison${supplier ? ` ${supplier}` : ''}${short ? ` (${short} manquant${short > 1 ? 's' : ''})` : ''} réceptionnée : ${action.lines.length} article${action.lines.length > 1 ? 's' : ''}${action.expense ? ` · dépense ${money(total)}` : ''}`;
       break;
     }
     default:
@@ -690,6 +757,7 @@ export async function initialState(): Promise<State> {
     audit: [],
     stock: [],
     stockMoves: [],
+    orders: [],
     goal: 0,
     requestIds: [],
   };

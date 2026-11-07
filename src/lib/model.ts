@@ -131,6 +131,10 @@ export type StockItemInput = {
   unitCost: number;
   /** Closest use-by date of the stock on hand (YYYY-MM-DD). */
   expiresAt?: string;
+  /** Units per supplier pack (carton, colis): orders are rounded to whole packs. */
+  packSize?: number;
+  /** Supplier reference, to find the product quickly on the ordering site. */
+  ref?: string;
 };
 export type StockItem = StockItemInput & {
   id: string;
@@ -139,6 +143,19 @@ export type StockItem = StockItemInput & {
   createdAt: string;
   updatedAt: string;
   lastCountedAt?: string;
+};
+export type PurchaseOrder = {
+  id: string;
+  supplier: string;
+  lines: { itemId: string; name: string; unit: string; quantity: number }[];
+  /** Days of service the order is meant to cover (Tuesday to Sunday = 6). */
+  coverDays: number;
+  status: 'placed' | 'received' | 'cancelled';
+  placedAt: string;
+  actor: string;
+  receivedAt?: string;
+  /** Lines delivered short at reception: ordered minus received. */
+  missing?: { itemId: string; name: string; unit: string; quantity: number }[];
 };
 export type StockMoveKind = 'in' | 'out' | 'loss' | 'count';
 export type StockMove = {
@@ -165,6 +182,7 @@ export type State = {
   audit: Audit[];
   stock: StockItem[];
   stockMoves: StockMove[];
+  orders: PurchaseOrder[];
   goal: number;
   requestIds: string[];
 };
@@ -215,12 +233,20 @@ export type Action =
     }
   | { type: 'stock.count'; lines: { itemId: string; quantity: number }[] }
   | {
+      type: 'stock.order.place';
+      supplier: string;
+      coverDays: number;
+      lines: { itemId: string; quantity: number }[];
+    }
+  | { type: 'stock.order.cancel'; id: string }
+  | {
       type: 'stock.receive';
       supplier: string;
       date: string;
       lines: { itemId: string; quantity: number; unitCost: number; expiresAt?: string }[];
       expense?: { category: string; payment: string };
       note?: string;
+      orderId?: string;
     };
 export const money = (cents: number, decimals = true) =>
   new Intl.NumberFormat('fr-FR', {

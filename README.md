@@ -21,13 +21,23 @@ Les recettes se saisissent sans libellé : une seule fiche **Recettes du jour** 
 
 L’onglet **Stock** gère l’inventaire du restaurant :
 
-- **Catalogue burger** : une liste de départ (viandes, pains, fromages, légumes, sauces, frites, boissons, emballages, hygiène) que le responsable coche ; rien n’est ajouté sans sa sélection.
+- **Produits de la carte** : 84 ingrédients déduits des plats publiés sur bhouse26.fr (le site ne donne pas les recettes), chacun avec les plats qui l’utilisent. Tout est coché par défaut ; le responsable décoche les erreurs, puis modifie ou supprime (y compris en sélection multiple) à tout moment.
 - **Articles** : unité de comptage, zone de stockage, fournisseur, seuil d’alerte, stock idéal, prix d’achat et DLC la plus proche.
 - **Comptage** zone par zone avec boutons + / −, validation en un geste quand la quantité est identique au théorique, mode à l’aveugle et brouillon conservé sur le téléphone. Seuls les écarts créent un mouvement.
 - **Réception de livraison** : les quantités entrent en stock, les prix d’achat sont mis à jour et la dépense correspondante peut être créée automatiquement dans le registre.
 - **Pertes** avec motif (périmé, abîmé, erreur, repas du personnel, offert) et valeur perdue du mois.
 - **Liste de commande** calculée pour revenir au stock idéal, regroupée par fournisseur, modifiable et envoyable par SMS / WhatsApp, puis réceptionnable en un geste.
 - **À traiter maintenant** : DLC dépassées, ruptures, DLC proches, articles sous le seuil et ruptures estimées d’après la consommation des 14 derniers jours.
+
+### Routine du lundi (commande GFD)
+
+Les commandes GFD (Easy CMD, commande.gfdlyon.fr) se passent le lundi pour la semaine du mardi au dimanche. La carte **Commande de la semaine** guide les trois étapes :
+
+1. **Compter ce qui reste** : à la validation du comptage, la commande s’ouvre directement.
+2. **Passer la commande** : la quantité proposée couvre les jours de service choisis (6 par défaut) d’après la consommation des 4 dernières semaines, plus le seuil d’alerte comme sécurité, moins le stock restant. Sans historique, elle remonte au stock idéal. Avec le colisage renseigné sur l’article, elle est arrondie au carton entier et saisie en colis. GFD apparaît en premier, avec un lien vers Easy CMD et une case à cocher par ligne pour suivre la saisie (réinitialisée chaque semaine). « Commande passée » enregistre la commande.
+3. **Contrôler la livraison** : la réception reprend la commande ; une quantité corrigée (0 = non livré) signale les produits manquants.
+
+L’app ne se connecte pas au compte GFD : la saisie sur Easy CMD reste manuelle. Les commandes sont conservées avec les métadonnées du restaurant (40 dernières), sans migration de schéma.
 
 Chaque mouvement conserve l’auteur, la date, la quantité et la valeur. Les 3 000 mouvements les plus récents sont conservés. La migration `0003_inventory.sql` doit être appliquée (`npm run db:migrate`) avant de publier cette version.
 

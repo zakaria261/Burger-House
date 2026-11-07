@@ -657,7 +657,7 @@ export default function Cockpit() {
           )}
           <div className="page-heading">
             <div>
-              <div className="eyebrow">
+              <div className="eyebrow" suppressHydrationWarning>
                 {frenchDate(today(), { weekday: 'long', day: 'numeric', month: 'long' })}
               </div>
               <h1>{TITLES[tab][0]}</h1>

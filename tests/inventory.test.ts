@@ -11,6 +11,8 @@ import {
   stockValue,
   suggestedOrder,
   formatQty,
+  weeklyOrder,
+  packLabel,
 } from '../src/lib/inventory';
 import { revenueStatement, statementCsv } from '../src/lib/revenue';
 import { pack, unpack, metadata } from '../src/lib/records';
@@ -341,4 +343,104 @@ test('le catalogue suit la carte et la suppression groupée retire les articles 
   // A removed ingredient can be recreated with a corrected name or settings.
   s = await applyAction(s, { type: 'stock.items.import', items: BURGER_CATALOG.slice(0, 1) }, at);
   assert.equal(s.stock.filter((i) => i.active).length, BURGER_CATALOG.length - 2);
+});
+
+test('la commande du lundi couvre mardi → dimanche, arrondie au carton', async () => {
+  // Bought 200 steaks, a week later 60 are left: 140 used in 7 days, i.e. 20 a day.
+  let { s, id } = await withSteak(200);
+  s = await applyAction(
+    s,
+    { type: 'stock.item.save', id, item: { ...steak, packSize: 40, ref: 'GFD-1520' } },
+    at,
+  );
+  s = await applyAction(
+    s,
+    { type: 'stock.count', lines: [{ itemId: id, quantity: 60 }] },
+    new Date('2026-11-14T08:00:00Z'),
+  );
+  const item = s.stock[0];
+  const usage = dailyUsage(item, s.stockMoves, new Date('2026-11-16T08:00:00Z'), 28);
+  const span = (Date.parse('2026-11-16T08:00:00Z') - at.getTime()) / 86400000;
+  assert.equal(Math.round(usage * 1000), Math.round((140 / span) * 1000));
+  // 6 days of usage + 20 safety − 60 left, rounded up to whole cartons of 40.
+  const need = usage * 6 + 20 - 60;
+  assert.equal(weeklyOrder(item, usage, 6), Math.ceil(need / 40) * 40);
+  assert.equal(packLabel(80, item), '2 colis (80 pièces)');
+  // Without history, the weekly order tops up to the ideal stock.
+  assert.equal(weeklyOrder({ ...item, quantity: 30 }, 0, 6), 80);
+  assert.equal(weeklyOrder({ ...item, quantity: 300 }, 10, 6), 0);
+});
+
+test('une commande passée se contrôle à la livraison et signale les manquants', async () => {
+  let { s, id } = await withSteak(10);
+  s = await applyAction(
+    s,
+    { type: 'stock.item.save', item: { ...steak, name: 'Cheddar', category: 'Fromages' } },
+    at,
+  );
+  const cheddar = s.stock.find((i) => i.name === 'Cheddar')!.id;
+  s = await applyAction(
+    s,
+    {
+      type: 'stock.order.place',
+      supplier: 'Gfd',
+      coverDays: 6,
+      lines: [
+        { itemId: id, quantity: 120 },
+        { itemId: cheddar, quantity: 200 },
+      ],
+    },
+    at,
+  );
+  assert.equal(s.orders[0].status, 'placed');
+  const orderId = s.orders[0].id;
+  // Survives storage in the metadata.
+  assert.equal(unpack(metadata(s), pack(s)).orders[0].lines.length, 2);
+  s = await applyAction(
+    s,
+    {
+      type: 'stock.receive',
+      supplier: 'Gfd',
+      date: '2026-11-07',
+      orderId,
+      lines: [{ itemId: id, quantity: 80, unitCost: 95 }],
+    },
+    at,
+  );
+  const order = s.orders[0];
+  assert.equal(order.status, 'received');
+  assert.deepEqual(
+    order.missing?.map((m) => [m.name, m.quantity]),
+    [
+      ['Steak 150 g', 40],
+      ['Cheddar', 200],
+    ],
+  );
+  assert.match(s.audit[0].text, /2 manquants/);
+  await assert.rejects(
+    applyAction(
+      s,
+      {
+        type: 'stock.receive',
+        supplier: 'Gfd',
+        date: '2026-11-07',
+        orderId,
+        lines: [{ itemId: id, quantity: 1, unitCost: 95 }],
+      },
+      at,
+    ),
+    /déjà reçue/,
+  );
+  s = await applyAction(
+    s,
+    {
+      type: 'stock.order.place',
+      supplier: 'Gfd',
+      coverDays: 6,
+      lines: [{ itemId: id, quantity: 40 }],
+    },
+    at,
+  );
+  s = await applyAction(s, { type: 'stock.order.cancel', id: s.orders[0].id }, at);
+  assert.equal(s.orders[0].status, 'cancelled');
 });

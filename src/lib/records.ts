@@ -15,7 +15,12 @@ export function pack(state: State) {
   );
 }
 export function metadata(state: State) {
-  return JSON.stringify({ goal: state.goal, requestIds: state.requestIds });
+  // Purchase orders are few and short-lived: they live with the metadata, no schema change needed.
+  return JSON.stringify({
+    goal: state.goal,
+    requestIds: state.requestIds,
+    orders: state.orders ?? [],
+  });
 }
 export function unpack(data: string, rows: RecordRow[]): State {
   const base = JSON.parse(data);
@@ -27,6 +32,7 @@ export function unpack(data: string, rows: RecordRow[]): State {
     audit: [],
     stock: [],
     stockMoves: [],
+    orders: Array.isArray(base.orders) ? base.orders : [],
     goal: base.goal,
     requestIds: base.requestIds ?? [],
   };

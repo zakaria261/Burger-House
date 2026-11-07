@@ -31,6 +31,8 @@ import {
   Snowflake,
   Soup,
   Sparkles,
+  ExternalLink,
+  CalendarCheck,
   SprayCan,
   Carrot,
   Trash2,
@@ -52,6 +54,7 @@ import {
   StockItem,
   StockItemInput,
   StockMove,
+  PurchaseOrder,
   addDays,
   money,
   today,
@@ -73,6 +76,8 @@ import {
   stockLevel,
   stockValue,
   suggestedOrder,
+  weeklyOrder,
+  packLabel,
   unitLabel,
 } from '@/lib/inventory';
 import { Empty, Modal, SegmentedControl } from './ui';
@@ -93,7 +98,7 @@ type Sheet =
   | { type: 'item'; id: string; mode?: MoveMode }
   | { type: 'edit'; id?: string }
   | { type: 'count'; zone?: string }
-  | { type: 'receive'; supplier?: string; prefill?: Record<string, number> }
+  | { type: 'receive'; supplier?: string; prefill?: Record<string, number>; orderId?: string }
   | { type: 'order' }
   | { type: 'loss' }
   | { type: 'catalog' }
@@ -285,6 +290,12 @@ export default function Inventory({
     const now = new Date();
     return Object.fromEntries(items.map((i) => [i.id, dailyUsage(i, moves, now)]));
   }, [items, moves]);
+  // Weekly orders read four weeks of history, so that one Monday count does not skew them.
+  const weekUsage = useMemo(() => {
+    const now = new Date();
+    return Object.fromEntries(items.map((i) => [i.id, dailyUsage(i, moves, now, 28)]));
+  }, [items, moves]);
+  const orders = state.orders ?? [];
   const toOrder = items.filter(needsOrder);
   const outOfStock = items.filter((i) => stockLevel(i) === 'out');
   const expiring = items.filter((i) => expiryLevel(i, day));
@@ -479,6 +490,17 @@ export default function Inventory({
             </div>
           </section>
 
+          <WeeklyRoutine
+            items={items}
+            orders={orders}
+            usage={weekUsage}
+            day={day}
+            draftCount={draftCount}
+            unavailable={unavailable}
+            onCount={() => open({ type: 'count' })}
+            onOrder={() => open({ type: 'order' })}
+            onReceive={(o) => open({ type: 'receive', orderId: o.id })}
+          />
           <div className="stock-actions">
             <button disabled={unavailable} onClick={() => open({ type: 'receive' })}>
               <span className="action-in">
@@ -848,7 +870,16 @@ export default function Inventory({
                 closing={closing}
                 wide
               >
-                <CountSheet items={items} onSubmit={run} {...sheetProps} />
+                <CountSheet
+                  items={items}
+                  onSubmit={async (action) => {
+                    // A completed count leads straight to the order it is meant to prepare.
+                    const ok = await submit(action);
+                    if (ok) open({ type: 'order' });
+                    return ok;
+                  }}
+                  {...sheetProps}
+                />
               </Modal>
             )}
             {sheet?.type === 'receive' && (
@@ -864,6 +895,7 @@ export default function Inventory({
                   suppliers={suppliersOf(stock)}
                   supplier={sheet.supplier}
                   prefill={sheet.prefill}
+                  order={orders.find((o) => o.id === sheet.orderId && o.status === 'placed')}
                   onSubmit={run}
                   {...sheetProps}
                 />
@@ -871,17 +903,22 @@ export default function Inventory({
             )}
             {sheet?.type === 'order' && (
               <Modal
-                title="Liste de commande"
-                subtitle="Calculée pour revenir au stock idéal, fournisseur par fournisseur."
+                title="Commande de la semaine"
+                subtitle="Ce qu’il faut pour tenir jusqu’à la prochaine livraison, carton par carton."
                 onClose={close}
                 closing={closing}
                 wide
               >
                 <OrderSheet
                   items={items}
+                  usage={weekUsage}
+                  orders={orders}
                   notify={notify}
                   unavailable={unavailable}
-                  onReceive={(supplier, prefill) => open({ type: 'receive', supplier, prefill })}
+                  busy={busy}
+                  error={error}
+                  onPlace={run}
+                  onReceive={(o) => open({ type: 'receive', orderId: o.id })}
                 />
               </Modal>
             )}
@@ -970,6 +1007,138 @@ export default function Inventory({
           document.body,
         )}
     </>
+  );
+}
+
+const parisDay = (iso: string) => today(new Date(iso));
+function WeeklyRoutine({
+  items,
+  orders,
+  usage,
+  day,
+  draftCount,
+  unavailable,
+  onCount,
+  onOrder,
+  onReceive,
+}: {
+  items: StockItem[];
+  orders: PurchaseOrder[];
+  usage: Record<string, number>;
+  day: string;
+  draftCount: number;
+  unavailable: boolean;
+  onCount: () => void;
+  onOrder: () => void;
+  onReceive: (o: PurchaseOrder) => void;
+}) {
+  const monday = new Date(day + 'T12:00:00Z').getUTCDay() === 1;
+  const week = addDays(day, -((new Date(day + 'T12:00:00Z').getUTCDay() + 6) % 7));
+  const countedToday = items.filter(
+    (i) => i.lastCountedAt && parisDay(i.lastCountedAt) === day,
+  ).length;
+  const countedThisWeek = items.filter(
+    (i) => i.lastCountedAt && parisDay(i.lastCountedAt) >= week,
+  ).length;
+  const lines = orderGroups(items, {}, (i) => weeklyOrder(i, usage[i.id] ?? 0, 6));
+  const gfd = lines.find((g) => isGfd(g.supplier));
+  const others = lines.filter((g) => g !== gfd).reduce((a, g) => a + g.lines.length, 0);
+  const pending = orders.find((o) => o.status === 'placed');
+  const placedThisWeek =
+    orders.find(
+      (o) => o.status !== 'cancelled' && isGfd(o.supplier) && parisDay(o.placedAt) >= week,
+    ) ??
+    (gfd
+      ? undefined
+      : orders.find((o) => o.status !== 'cancelled' && parisDay(o.placedAt) >= week));
+  const lastReceived = orders.find(
+    (o) => o.status === 'received' && o.receivedAt && parisDay(o.receivedAt) >= week,
+  );
+  const countDone = countedThisWeek >= Math.max(1, Math.ceil(items.length * 0.8));
+  const steps = [
+    {
+      done: countDone,
+      title: 'Compter ce qui reste',
+      detail: countDone
+        ? `${countedThisWeek} articles comptés cette semaine`
+        : draftCount
+          ? `Comptage en cours : ${draftCount} / ${items.length}`
+          : countedToday
+            ? `${countedToday} / ${items.length} comptés aujourd’hui`
+            : 'Zone par zone, 10 minutes',
+      action: countDone ? 'Recompter' : draftCount ? 'Reprendre' : 'Compter',
+      onClick: onCount,
+      disabled: unavailable,
+    },
+    {
+      done: !!placedThisWeek,
+      title: 'Passer la commande GFD',
+      detail: placedThisWeek
+        ? `Commande ${placedThisWeek.supplier} passée ${ago(placedThisWeek.placedAt)}`
+        : gfd
+          ? `${gfd.lines.length} produit${gfd.lines.length > 1 ? 's' : ''} GFD pour mardi → dimanche${gfd.total ? ` · ≈ ${money(gfd.total, false)}` : ''}${others ? ` · + ${others} chez d’autres fournisseurs` : ''}`
+          : others
+            ? `${others} produit${others > 1 ? 's' : ''} chez d’autres fournisseurs`
+            : 'Le stock couvre la semaine',
+      action: 'Voir',
+      onClick: onOrder,
+      disabled: false,
+    },
+    {
+      done: !!lastReceived && !pending,
+      title: 'Contrôler la livraison',
+      detail: pending
+        ? `${pending.lines.length} produits attendus · vérifiez les cartons`
+        : lastReceived
+          ? lastReceived.missing?.length
+            ? `Manquants : ${lastReceived.missing.map((m) => `${m.name} (${formatQty(m.quantity, m.unit)})`).join(', ')}`
+            : 'Livraison complète'
+          : 'Après la commande',
+      action: 'Contrôler',
+      onClick: () => pending && onReceive(pending),
+      disabled: !pending || unavailable,
+    },
+  ];
+  return (
+    <section className={`panel weekly-card ${monday ? 'is-monday' : ''}`}>
+      <header className="panel-header">
+        <div>
+          <h2>
+            <CalendarCheck size={20} />
+            {monday ? 'C’est lundi : la commande de la semaine' : 'Commande de la semaine'}
+          </h2>
+          <p>Compter le lundi, commander pour mardi → dimanche, contrôler la livraison.</p>
+        </div>
+      </header>
+      <ol className="weekly-steps">
+        {steps.map((st, i) => (
+          <li key={st.title} className={st.done ? 'is-done' : ''}>
+            <span className="step-index">
+              {st.done ? <Check size={15} strokeWidth={3} /> : i + 1}
+            </span>
+            <span className="step-copy">
+              <strong>{st.title}</strong>
+              <small
+                className={
+                  i === 2 && lastReceived?.missing?.length && !pending ? 'text-warning' : ''
+                }
+              >
+                {st.detail}
+              </small>
+            </span>
+            {!(i === 2 && !pending) && (
+              <button
+                className={`button ${!st.done && steps.slice(0, i).every((x) => x.done) ? 'button-primary' : 'button-secondary'}`}
+                disabled={st.disabled}
+                onClick={st.onClick}
+              >
+                {st.action}
+              </button>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 
@@ -1452,8 +1621,19 @@ function ItemForm({
         const f = new FormData(e.currentTarget);
         const num = (k: string) => parseQty(String(f.get(k) ?? '') || '0');
         const unitCost = parseEuros(String(f.get('unitCost') ?? ''));
-        const [min, par, initial] = [num('minQuantity'), num('parQuantity'), num('initial')];
-        if (min === null || par === null || initial === null || unitCost === null) {
+        const [min, par, initial, pack] = [
+          num('minQuantity'),
+          num('parQuantity'),
+          num('initial'),
+          num('packSize'),
+        ];
+        if (
+          min === null ||
+          par === null ||
+          initial === null ||
+          pack === null ||
+          unitCost === null
+        ) {
           setLocalError('Un nombre est mal saisi. Utilisez par exemple 2 ou 1,5.');
           return;
         }
@@ -1467,6 +1647,8 @@ function ItemForm({
           parQuantity: par,
           unitCost,
           expiresAt: String(f.get('expiresAt') ?? '') || undefined,
+          packSize: pack || undefined,
+          ref: String(f.get('ref') ?? '').trim() || undefined,
         };
         await onSubmit(
           item
@@ -1528,6 +1710,24 @@ function ItemForm({
           </datalist>
         </label>
       </div>
+      <div className="form-grid">
+        <label>
+          Colisage ({unit} par colis)
+          <input
+            name="packSize"
+            inputMode="decimal"
+            defaultValue={item?.packSize ? inputQty(item.packSize) : ''}
+            placeholder="Ex. 40"
+          />
+        </label>
+        <label>
+          Réf. fournisseur
+          <input name="ref" defaultValue={item?.ref} placeholder="Ex. code GFD" maxLength={40} />
+        </label>
+      </div>
+      <p className="field-help">
+        Avec le colisage, la commande est arrondie au carton entier, comme sur Easy CMD.
+      </p>
       <div className="form-grid">
         <label>
           Seuil d’alerte ({unit})
@@ -1813,8 +2013,9 @@ function CountSheet({
 function ReceiveSheet({
   items,
   suppliers,
-  supplier: initialSupplier,
+  supplier: orderSupplier,
   prefill,
+  order,
   onSubmit,
   busy,
   error,
@@ -1824,21 +2025,37 @@ function ReceiveSheet({
   suppliers: string[];
   supplier?: string;
   prefill?: Record<string, number>;
+  /** A placed order: lines start with the ordered quantities, shortfalls are highlighted. */
+  order?: PurchaseOrder;
   onSubmit: (a: Action) => Promise<boolean>;
   busy: boolean;
   error: string;
   unavailable: boolean;
 }) {
-  const line = (i: StockItem, q?: number) => ({
+  const initialSupplier = order?.supplier ?? orderSupplier;
+  const line = (i: StockItem, q?: number, ordered?: number) => ({
     itemId: i.id,
     quantity: q ? inputQty(q) : '',
     price: i.unitCost ? (i.unitCost / 100).toFixed(2).replace('.', ',') : '',
     expiresAt: '',
+    ordered,
   });
   const [supplier, setSupplier] = useState(initialSupplier ?? '');
   const [date, setDate] = useState(today());
   const [lines, setLines] = useState(() =>
-    prefill ? items.filter((i) => prefill[i.id]).map((i) => line(i, prefill[i.id])) : [],
+    order
+      ? order.lines
+          .map((l) => {
+            const item = items.find((i) => i.id === l.itemId);
+            return item ? line(item, l.quantity, l.quantity) : null;
+          })
+          .filter((l): l is NonNullable<typeof l> => !!l)
+      : prefill
+        ? items.filter((i) => prefill[i.id]).map((i) => line(i, prefill[i.id]))
+        : [],
+  );
+  const shortLines = lines.filter(
+    (l) => l.ordered !== undefined && (parseQty(l.quantity) ?? 0) < l.ordered,
   );
   const [withExpense, setWithExpense] = useState(true);
   const [category, setCategory] = useState(() =>
@@ -1870,7 +2087,20 @@ function ReceiveSheet({
           setLocalError('Ajoutez au moins un article reçu.');
           return;
         }
-        const parsed = lines.map((l) => ({ l, q: parseQty(l.quantity), p: parseEuros(l.price) }));
+        // With an order, a quantity of 0 means "not delivered": the line is reported as missing.
+        const parsed = lines
+          .map((l) => ({
+            l,
+            q: parseQty(l.quantity || (l.ordered !== undefined ? '0' : '')),
+            p: parseEuros(l.price),
+          }))
+          .filter((x) => !(x.l.ordered !== undefined && x.q === 0));
+        if (!parsed.length) {
+          setLocalError(
+            'Rien n’a été livré ? Annulez plutôt la commande depuis la liste de commande.',
+          );
+          return;
+        }
         const bad = parsed.find((x) => !x.q || x.p === null);
         if (bad) {
           const name = items.find((i) => i.id === bad.l.itemId)?.name;
@@ -1894,9 +2124,24 @@ function ReceiveSheet({
             expiresAt: x.l.expiresAt || undefined,
           })),
           expense: withExpense ? { category, payment } : undefined,
+          orderId: order?.id,
         });
       }}
     >
+      {order && (
+        <div className={`delivery-check ${shortLines.length ? 'has-missing' : ''}`}>
+          {shortLines.length ? <CircleAlert size={18} /> : <Check size={18} />}
+          <p>
+            <strong>
+              {shortLines.length
+                ? `${shortLines.length} produit${shortLines.length > 1 ? 's' : ''} incomplet${shortLines.length > 1 ? 's' : ''}`
+                : 'Livraison conforme à la commande'}
+            </strong>
+            Commande passée {ago(order.placedAt)}. Corrigez une quantité si le carton n’est pas
+            arrivé (0 = non livré).
+          </p>
+        </div>
+      )}
       <div className="form-grid">
         <label>
           Fournisseur
@@ -1950,8 +2195,15 @@ function ReceiveSheet({
           const item = items.find((i) => i.id === l.itemId)!;
           const q = parseQty(l.quantity);
           const p = parseEuros(l.price);
+          const short = l.ordered !== undefined ? roundQty(l.ordered - (q ?? 0)) : 0;
           return (
-            <div className="receive-line" key={l.itemId}>
+            <div className={`receive-line ${short > 0 ? 'is-short' : ''}`} key={l.itemId}>
+              {l.ordered !== undefined && (
+                <p className="ordered-note">
+                  Commandé : {packLabel(l.ordered, item)}
+                  {short > 0 && <b> · manque {formatQty(short, item.unit)}</b>}
+                </p>
+              )}
               <div className="receive-line-head">
                 <StockIcon category={item.category} size={16} />
                 <strong>{item.name}</strong>
@@ -2082,110 +2334,285 @@ function ReceiveSheet({
   );
 }
 
+const COVER_KEY = 'bh-order-cover-days';
+const TICKS_KEY = 'bh-order-ticks';
+/** Monday of the current Paris week, used to reset the ordering checklist each week. */
+function weekKey(day = today()) {
+  const d = new Date(day + 'T12:00:00Z');
+  return addDays(day, -((d.getUTCDay() + 6) % 7));
+}
+function readLocal<T>(key: string, fallback: T): T {
+  try {
+    const v = JSON.parse(localStorage.getItem(key) || 'null');
+    return v ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+function writeLocal(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+}
+export const isGfd = (supplier: string) => /gfd/i.test(supplier);
+export const GFD_URL = 'https://commande.gfdlyon.fr';
+
 function OrderSheet({
   items,
+  usage,
+  orders,
   notify,
   unavailable,
+  busy,
+  error,
+  onPlace,
   onReceive,
 }: {
   items: StockItem[];
+  usage: Record<string, number>;
+  orders: PurchaseOrder[];
   notify: (m: string) => void;
   unavailable: boolean;
-  onReceive: (supplier: string, prefill: Record<string, number>) => void;
+  busy: boolean;
+  error: string;
+  onPlace: (action: Action) => Promise<boolean>;
+  onReceive: (order: PurchaseOrder) => void;
 }) {
+  const [mode, setMode] = useState<'week' | 'par'>('week');
+  const [coverDays, setCoverDays] = useState(() => {
+    const v = readLocal<number>(COVER_KEY, 6);
+    return Number.isInteger(v) && v >= 1 && v <= 14 ? v : 6;
+  });
   const [overrides, setOverrides] = useState<Record<string, string>>({});
+  const [ticks, setTicks] = useState<Record<string, boolean>>(() => {
+    const v = readLocal<{ week: string; ticks: Record<string, boolean> } | null>(TICKS_KEY, null);
+    return v && v.week === weekKey() ? v.ticks : {};
+  });
+  useEffect(() => writeLocal(COVER_KEY, coverDays), [coverDays]);
+  useEffect(() => writeLocal(TICKS_KEY, { week: weekKey(), ticks }), [ticks]);
+  const suggest = (i: StockItem) =>
+    mode === 'week' ? weeklyOrder(i, usage[i.id] ?? 0, coverDays) : suggestedOrder(i);
+  // Quantities are typed in cartons when the pack size is known, as on the supplier's site.
   const parsedOverrides = Object.fromEntries(
-    Object.entries(overrides).map(([id, v]) => [id, parseQty(v) ?? 0]),
+    Object.entries(overrides).map(([id, v]) => {
+      const item = items.find((i) => i.id === id);
+      const n = parseQty(v) ?? 0;
+      return [id, item?.packSize ? roundQty(n * item.packSize) : n];
+    }),
   );
-  const groups: OrderGroup[] = orderGroups(items, parsedOverrides);
-  const base = orderGroups(items);
-  // Keep rows visible while their quantity is being edited, even at zero.
-  const editing = (g: OrderGroup) => {
-    const extra = base
-      .find((b) => b.supplier === g.supplier)
-      ?.lines.filter((l) => !g.lines.some((x) => x.item.id === l.item.id))
-      .map((l) => ({ ...l, quantity: 0, cost: 0 }));
-    return [...g.lines, ...(extra ?? [])].sort((a, b) =>
-      a.item.name.localeCompare(b.item.name, 'fr'),
-    );
-  };
+  const base = orderGroups(items, {}, suggest);
+  const groups = orderGroups(items, parsedOverrides, suggest);
   const all = [...new Set([...base.map((g) => g.supplier), ...groups.map((g) => g.supplier)])].map(
     (s) => groups.find((g) => g.supplier === s) ?? { supplier: s, lines: [], total: 0 },
   );
+  // Keep a row visible while it is edited down to zero.
+  const rows = (g: OrderGroup) => {
+    const extra =
+      base
+        .find((b) => b.supplier === g.supplier)
+        ?.lines.filter((l) => !g.lines.some((x) => x.item.id === l.item.id))
+        .map((l) => ({ ...l, quantity: 0, cost: 0 })) ?? [];
+    return [...g.lines, ...extra].sort(
+      (a, b) =>
+        STOCK_CATEGORIES.indexOf(a.item.category as (typeof STOCK_CATEGORIES)[number]) -
+          STOCK_CATEGORIES.indexOf(b.item.category as (typeof STOCK_CATEGORIES)[number]) ||
+        a.item.name.localeCompare(b.item.name, 'fr'),
+    );
+  };
+  const pending = orders.filter((o) => o.status === 'placed');
   const total = groups.reduce((a, g) => a + g.total, 0);
   const send = async (text: string, title: string) => {
     const r = await shareText(text, title);
     if (r === 'copied') notify('Liste copiée. Collez-la dans un SMS ou WhatsApp.');
     else if (r === 'failed') notify('Partage impossible sur cet appareil.');
   };
-  if (!base.length)
-    return (
-      <Empty
-        title="Rien à commander"
-        body="Tous les articles suivis sont au-dessus de leur seuil d’alerte. Pensez à compter régulièrement pour garder ce calcul juste."
-      />
-    );
+  const display = (l: OrderGroup['lines'][number]) =>
+    overrides[l.item.id] ??
+    inputQty(l.item.packSize ? roundQty(l.quantity / l.item.packSize) : l.quantity);
   return (
     <div className="order-sheet">
-      {all.map((g) => (
-        <section className="order-group" key={g.supplier}>
-          <header>
-            <div>
-              <h3>{g.supplier}</h3>
-              <small>
-                {g.lines.length} produit{g.lines.length > 1 ? 's' : ''}
-                {g.total ? ` · ≈ ${money(g.total)}` : ''}
-              </small>
-            </div>
-            <div className="order-actions">
-              <button
-                className="button button-secondary"
-                disabled={!g.lines.length}
-                onClick={() => void send(orderMessage(g), `Commande ${g.supplier}`)}
-              >
-                <Send size={15} />
-                Envoyer
-              </button>
-              <button
-                className="button button-soft"
-                disabled={!g.lines.length || unavailable}
-                onClick={() =>
-                  onReceive(
-                    g.supplier === 'Sans fournisseur' ? '' : g.supplier,
-                    Object.fromEntries(g.lines.map((l) => [l.item.id, l.quantity])),
-                  )
-                }
-              >
-                <Truck size={15} />
-                Reçue
-              </button>
-            </div>
-          </header>
-          {editing(g).map((l) => (
-            <div className="order-line" key={l.item.id}>
-              <StockIcon category={l.item.category} size={16} />
-              <span>
-                <strong>{l.item.name}</strong>
-                <small>
-                  En stock {formatQty(Math.max(0, l.item.quantity), l.item.unit)}
-                  {l.item.parQuantity ? ` · idéal ${qty(l.item.parQuantity)}` : ''}
-                </small>
-              </span>
-              <label className="order-qty">
-                <input
-                  inputMode="decimal"
-                  aria-label={`Quantité à commander : ${l.item.name}`}
-                  value={overrides[l.item.id] ?? inputQty(l.quantity)}
-                  onFocus={(e) => e.currentTarget.select()}
-                  onChange={(e) => setOverrides({ ...overrides, [l.item.id]: e.target.value })}
-                />
-                <small>{unitLabel(l.item.unit, l.quantity)}</small>
-              </label>
-            </div>
-          ))}
-        </section>
+      {pending.map((o) => (
+        <div className="pending-order" key={o.id}>
+          <Truck size={18} />
+          <span>
+            <strong>Commande {o.supplier || 'fournisseur'} en attente</strong>
+            <small>
+              Passée {ago(o.placedAt)} · {o.lines.length} produit{o.lines.length > 1 ? 's' : ''}
+            </small>
+          </span>
+          <button className="button button-soft" onClick={() => onReceive(o)}>
+            Réceptionner
+          </button>
+        </div>
       ))}
+      <div className="order-settings">
+        <SegmentedControl
+          className="order-mode"
+          options={
+            [
+              { value: 'week', label: 'Pour la semaine' },
+              { value: 'par', label: 'Stock idéal' },
+            ] as const
+          }
+          value={mode}
+          onChange={(m) => {
+            setMode(m);
+            setOverrides({});
+          }}
+          label="Mode de calcul"
+        />
+        {mode === 'week' ? (
+          <div className="cover-days">
+            <span>
+              Jours de service à couvrir
+              <small>
+                {coverDays === 6 ? 'Du mardi au dimanche' : 'Jusqu’à la prochaine livraison'}
+              </small>
+            </span>
+            <div className="cover-stepper">
+              <button
+                type="button"
+                aria-label="Un jour de moins"
+                disabled={coverDays <= 1}
+                onClick={() => setCoverDays(coverDays - 1)}
+              >
+                <Minus size={16} />
+              </button>
+              <strong>{coverDays} j</strong>
+              <button
+                type="button"
+                aria-label="Un jour de plus"
+                disabled={coverDays >= 14}
+                onClick={() => setCoverDays(coverDays + 1)}
+              >
+                <Plus size={16} />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="field-help">Seuls les articles sous leur seuil d’alerte sont proposés.</p>
+        )}
+      </div>
+      {!base.length ? (
+        <Empty
+          title="Rien à commander"
+          body={
+            mode === 'week'
+              ? 'Le stock restant couvre les jours à venir. Comptez le lundi pour garder ce calcul juste.'
+              : 'Tous les articles sont au-dessus de leur seuil d’alerte.'
+          }
+        />
+      ) : (
+        all.map((g) => {
+          const list = rows(g);
+          const done = list.filter((l) => ticks[l.item.id]).length;
+          return (
+            <section className="order-group" key={g.supplier}>
+              <header>
+                <div>
+                  <h3>{g.supplier}</h3>
+                  <small>
+                    {g.lines.length} produit{g.lines.length > 1 ? 's' : ''}
+                    {g.total ? ` · ≈ ${money(g.total)}` : ''}
+                    {done ? ` · ${done}/${list.length} saisis` : ''}
+                  </small>
+                </div>
+                <div className="order-actions">
+                  {isGfd(g.supplier) && (
+                    <a
+                      className="button button-secondary"
+                      href={GFD_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <ExternalLink size={15} />
+                      Easy CMD
+                    </a>
+                  )}
+                  <button
+                    className="button button-secondary"
+                    disabled={!g.lines.length}
+                    onClick={() => void send(orderMessage(g), `Commande ${g.supplier}`)}
+                  >
+                    <Send size={15} />
+                    Envoyer
+                  </button>
+                </div>
+              </header>
+              {list.map((l) => {
+                const u = usage[l.item.id] ?? 0;
+                return (
+                  <div
+                    className={`order-line ${ticks[l.item.id] ? 'is-ticked' : ''}`}
+                    key={l.item.id}
+                  >
+                    <button
+                      type="button"
+                      className="tick"
+                      aria-pressed={!!ticks[l.item.id]}
+                      aria-label={`${l.item.name} saisi sur le site du fournisseur`}
+                      onClick={() => setTicks({ ...ticks, [l.item.id]: !ticks[l.item.id] })}
+                    >
+                      {ticks[l.item.id] && <Check size={14} strokeWidth={3} />}
+                    </button>
+                    <span>
+                      <strong>{l.item.name}</strong>
+                      <small>
+                        Reste {formatQty(Math.max(0, l.item.quantity), l.item.unit)}
+                        {mode === 'week'
+                          ? u > 0
+                            ? ` · ≈ ${qty(Math.round(u * 7 * 10) / 10)} / sem.`
+                            : ' · pas encore d’historique'
+                          : ''}
+                        {l.item.ref ? ` · réf. ${l.item.ref}` : ''}
+                      </small>
+                    </span>
+                    <label className="order-qty">
+                      <input
+                        inputMode="decimal"
+                        aria-label={`Quantité à commander : ${l.item.name}`}
+                        value={display(l)}
+                        onFocus={(e) => e.currentTarget.select()}
+                        onChange={(e) =>
+                          setOverrides({ ...overrides, [l.item.id]: e.target.value })
+                        }
+                      />
+                      <small>
+                        {l.item.packSize
+                          ? `colis · ${formatQty(l.quantity, l.item.unit)}`
+                          : unitLabel(l.item.unit, l.quantity)}
+                      </small>
+                    </label>
+                  </div>
+                );
+              })}
+              <div className="order-place">
+                <button
+                  className="button button-primary full"
+                  disabled={!g.lines.length || busy || unavailable}
+                  onClick={() =>
+                    void onPlace({
+                      type: 'stock.order.place',
+                      supplier: g.supplier === 'Sans fournisseur' ? '' : g.supplier,
+                      coverDays: mode === 'week' ? coverDays : 7,
+                      lines: g.lines.map((l) => ({ itemId: l.item.id, quantity: l.quantity })),
+                    })
+                  }
+                >
+                  <Check size={17} />
+                  {busy ? 'Enregistrement…' : `Commande ${g.supplier} passée`}
+                </button>
+              </div>
+            </section>
+          );
+        })
+      )}
       <div className="order-footer">
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
         <div className="income-total">
           <span>
             Estimation totale
@@ -2194,13 +2621,17 @@ function OrderSheet({
           <strong>{money(total)}</strong>
         </div>
         <button
-          className="button button-primary full"
+          className="button button-secondary full"
           disabled={!groups.length}
           onClick={() => void send(orderSummary(groups), 'Liste de commande Burger House')}
         >
           <Copy size={17} />
           Partager toute la liste
         </button>
+        <p className="field-help centered">
+          Cochez chaque ligne une fois saisie sur Easy CMD. « Commande passée » prépare la réception
+          de mardi.
+        </p>
       </div>
     </div>
   );
@@ -2435,6 +2866,11 @@ export function StockAlertCard({ state, onOpen }: { state: State; onOpen: () => 
   const day = today();
   const order = items.filter(needsOrder);
   const expiring = items.filter((i) => expiryLevel(i, day));
+  const monday = new Date(day + 'T12:00:00Z').getUTCDay() === 1;
+  const placedToday = (state.orders ?? []).some(
+    (o) => o.status !== 'cancelled' && today(new Date(o.placedAt)) === day,
+  );
+  const pending = (state.orders ?? []).find((o) => o.status === 'placed');
   return (
     <section className="panel stock-alert-card">
       <header className="panel-header">
@@ -2452,6 +2888,20 @@ export function StockAlertCard({ state, onOpen }: { state: State; onOpen: () => 
       </header>
       {items.length ? (
         <div className="stock-alert-lines">
+          {monday && !placedToday && (
+            <button onClick={onOpen} className="is-monday">
+              <CalendarCheck size={16} />
+              <span>C’est lundi : compter et commander</span>
+              <ChevronRight size={14} />
+            </button>
+          )}
+          {pending && !monday && (
+            <button onClick={onOpen}>
+              <Truck size={16} />
+              <span>Livraison {pending.supplier} attendue</span>
+              <ChevronRight size={14} />
+            </button>
+          )}
           <button onClick={onOpen} className={order.length ? 'is-warning' : ''}>
             <ShoppingCart size={16} />
             <span>{order.length ? `${order.length} à commander` : 'Rien à commander'}</span>
